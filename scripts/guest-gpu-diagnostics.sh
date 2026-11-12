@@ -27,7 +27,7 @@ if command -v modinfo >/dev/null 2>&1; then
       modinfo -F version "$module" 2>/dev/null || true
       if [ "$module" = nvidia ]; then
         printf '  license='
-        modinfo -F license "$module" 2>/dev/null || true
+        modinfo -F license nvidia 2>/dev/null || true
       fi
     else
       printf '%s: not found\n' "$module"
@@ -52,6 +52,7 @@ section "DRM CARDS AND CONNECTORS"
 shopt -s nullglob
 for card_path in /sys/class/drm/card[0-9]*; do
   card=$(basename "$card_path")
+  [[ "$card" =~ ^card[0-9]+$ ]] || continue
   [ -e "$card_path/device" ] || continue
   device=$(readlink -f "$card_path/device" 2>/dev/null || echo unknown)
   driver=$(readlink -f "$card_path/device/driver" 2>/dev/null || true)
