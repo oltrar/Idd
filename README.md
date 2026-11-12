@@ -23,7 +23,7 @@ sudo bash ./scripts/install-linux-guest.sh --guest             # KDE / GNOME DRM
 sudo bash ./scripts/install-linux-guest.sh --guest --compositor=hyprland
 ```
 
-The installer requires a VM marker and the typed confirmation `INSTALL-IN-GUEST`. It builds pinned Hermes-KMS `v0.4.0` against the running guest kernel through DKMS, builds the control utility, and installs/enables the guest systemd service. Matching kernel headers are required.
+The installer requires a VM marker and the typed confirmation `INSTALL-IN-GUEST`. It builds pinned Hermes-KMS `v0.4.1` against the running guest kernel through DKMS, builds the control utility, and installs/enables the guest systemd service. Matching kernel headers are required.
 
 Default output: 1920x1080@60. Change `/etc/idd/virtual-display.conf` to change the mode.
 
@@ -48,7 +48,7 @@ The installer runs only on the OS where it is executed. PCI passthrough is the i
 
 ## Current limitations
 
-- Hermes-KMS is an external GPL-2.0 kernel-module dependency pinned at `v0.4.0`; this repository integrates and manages it rather than reimplementing the Linux DRM subsystem.
+- Hermes-KMS is an external GPL-2.0 kernel-module dependency pinned at `v0.4.1`; this repository integrates and manages it rather than reimplementing the Linux DRM subsystem.
 - KWin/Mutter GPU preference is configured guest-locally, but must still be validated on the target driver. NVIDIA's Hermes-KMS capture/import path documents a CPU-copy fallback, so zero-copy NVIDIA streaming is not promised.
 - Hyprland's Aquamarine backend does not currently use Hermes-KMS/EVDI as a working secondary DRM output; the helper creates a Hyprland headless compositor output instead. That is not a DRM connector.
 - This prototype has not yet been run on the user's RTX 3080 Ti / NVIDIA 615.78.08 / CachyOS 7.3.1 guest. The guest install is the hardware validation step.
