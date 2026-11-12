@@ -8,7 +8,7 @@ virt="$(systemd-detect-virt --vm 2>/dev/null || true)"
 [[ "$virt" == "none" ]] && virt=""
 dmi="$( { cat /sys/class/dmi/id/sys_vendor 2>/dev/null; cat /sys/class/dmi/id/product_name 2>/dev/null; } | tr '[:upper:]' '[:lower:]' )"
 if [[ -z "$virt" && ! "$dmi" =~ (qemu|kvm|vmware|virtualbox|xen|bochs|virtual) ]]; then
-    if ! command -v lspci >/dev/null 2>&1 || ! lspci -nn 2>/dev/null | grep -qiE 'QEMU Virtual Machine|VMware|VirtualBox|KVM|Xen|Bochs'; then
+    if ! command -v lspci >/dev/null 2>&1 || ! lspci -nnk 2>/dev/null | grep -qiE 'QEMU Virtual Machine|VMware|VirtualBox|KVM|Xen|Bochs'; then
         echo 'No hypervisor marker detected; refusing to uninstall on this OS.' >&2
         exit 1
     fi
