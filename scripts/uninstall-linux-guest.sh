@@ -33,8 +33,14 @@ if [[ "$backend" == drm ]]; then
     systemctl disable --now idd-virtual-display.service 2>/dev/null || true
     rm -f /etc/systemd/system/idd-virtual-display.service
     systemctl daemon-reload
-    if command -v modprobe >/dev/null 2>&1; then
-        modprobe -r hermes_kms 2>/dev/null || echo 'hermes_kms is still in use; reboot the guest before removing the remaining module files.' >&2
+    if [[ -d /sys/module/hermes_kms ]] && ! modprobe -r hermes_kms 2>/dev/null; then
+        # A running compositor or other DRM client still has the module open.
+        # Disable boot-time loading, but keep DKMS source and module files so a
+        # second uninstall after reboot can cleanly unregister them.
+        rm -f /usr/lib/modules-load.d/hermes-kms.conf
+        rm -f /usr/lib/modprobe.d/hermes-kms.conf
+        echo 'Hermes-KMS is still in use. Boot autoload has been disabled; reboot this guest and rerun the same uninstaller command. No DKMS/module source files were removed.' >&2
+        exit 1
     fi
     if command -v dkms >/dev/null 2>&1; then
         dkms status | awk -F'[/,:]' '$1 == "hermes-kms" && $2 != "" {print $2}' | sort -u | while read -r version; do
