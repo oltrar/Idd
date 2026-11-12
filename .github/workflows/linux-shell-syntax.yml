@@ -31,9 +31,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git clone --depth 1 --branch v0.4.1 https://github.com/MrOz59/Hermes-KMS.git /tmp/Hermes-KMS
-          KVER="$(find /usr/lib/modules -mindepth 1 -maxdepth 1 -type d -printf '%f\\n' | sort -V | tail -n 1)"
-          test -n "$KVER"
+          git init /tmp/Hermes-KMS
+          git -C /tmp/Hermes-KMS remote add origin https://github.com/MrOz59/Hermes-KMS.git
+          git -C /tmp/Hermes-KMS fetch --depth 1 origin 143209286852430f5990a1fc8a95454b16bdea4c
+          git -C /tmp/Hermes-KMS checkout --detach FETCH_HEAD
+          shopt -s nullglob
+          kernel_dirs=(/usr/lib/modules/*)
+          test "${#kernel_dirs[@]}" -gt 0
+          KVER="${kernel_dirs[0]##*/}"
           test -f "/usr/lib/modules/$KVER/build/Makefile"
           make -C /tmp/Hermes-KMS KERNELRELEASE="$KVER" KDIR="/usr/lib/modules/$KVER/build" modules
           make -C /tmp/Hermes-KMS tools/hermes-kmsctl/hermes-kmsctl
