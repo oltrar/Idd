@@ -12,7 +12,7 @@ The supplied diagnostics show:
 - NVIDIA device at guest PCI address `03:00.0`;
 - a guest DRM card driven by `nvidia` with three disconnected DP connectors and one connected HDMI connector.
 
-The install does **not** alter any of those NVIDIA connector states. It loads a separate virtual DRM device called Hermes-KMS, then creates its own `HERMES-1` output. The RTX 3080 Ti remains available as the guest's real render GPU; the virtual KMS card is only the display endpoint. The compositor still chooses its rendering device. Because the guest has the RTX passed through and its own physical HDMI output is attached to that device, the intended path is for KWin/Mutter to render on NVIDIA and copy/present to the virtual output. This must be verified on the running session with `nvidia-smi`; the installer does not force an undocumented renderer override.
+The install does **not** alter any of those NVIDIA connector states. It loads a separate virtual DRM device called Hermes-KMS, then creates its own `HERMES-1` output. The RTX 3080 Ti is the rendering GPU; Hermes-KMS is only the display endpoint. The installer now configures the supported compositor selection mechanisms: KWin receives `KWIN_DRM_DEVICES` with the NVIDIA card first and Hermes-KMS second, and Mutter receives its documented `mutter-device-preferred-primary` udev tag for the RTX 3080 Ti PCI ID. This is still subject to hardware validation on your driver/kernel. `iddctl verify` and `nvidia-smi` are used to confirm the actual renderer after a fresh login.
 
 ## Isolation guarantee and safety boundary
 
@@ -24,10 +24,10 @@ There is no host-side command, systemd unit, initramfs hook, EDID override, NVID
 
 ## Backend and compositor support
 
-The project pins upstream Hermes-KMS `v0.4.0` rather than copying a second DRM driver implementation into this repository. Hermes-KMS is an out-of-tree GPL-2.0 DRM/KMS driver with a synthetic EDID, a DRM connector and mode setting. This repository supplies the guest-only installer, lifetime service, and compositor controls.
+The project pins upstream Hermes-KMS `v0.4.0` rather than copying a second DRM driver implementation into this repository. Hermes-KMS is an out-of-tree GPL-2.0 DRM/KMS driver with a synthetic EDID, a DRM connector and mode setting. The virtual card is not itself a render GPU. This repository supplies the guest-only installer, lifetime service, stable guest udev aliases, and compositor GPU-selection configuration: NVIDIA is primary for KWin/Mutter; Hermes-KMS is the secondary output-only card.
 
-- **KDE Plasma / KWin Wayland:** use the `HERMES-1` DRM output. The output is activated by KScreen; run `iddctl activate-kde` after logging in, or enable it in System Settings → Display Configuration.
-- **GNOME Wayland:** use Settings → Displays; `iddctl activate-gnome` opens that panel. The Mutter activation API differs from KScreen and is not automated by this small controller.
+- **KDE Plasma / KWin Wayland:** the installer writes `KWIN_DRM_DEVICES=/dev/dri/idd-nvidia-card:/dev/dri/idd-virtual-card`, so the RTX 3080 Ti is first (render GPU) and Hermes-KMS is second (virtual output). KWin reads this when the session starts; log out/in after installation. The output is activated by KScreen; run `iddctl activate-kde` or enable it in System Settings → Display Configuration.
+- **GNOME Wayland:** the installer tags the RTX 3080 Ti PCI device with Mutter's documented `mutter-device-preferred-primary` udev tag, making it the primary renderer when it supports EGL. The Hermes-KMS card remains the virtual output. Log out/in after installation, then use Settings → Displays; `iddctl activate-gnome` opens that panel.
 - **Hyprland:** Hermes-KMS/EVDI are not currently a working KMS-output path for Aquamarine. `iddctl hyprland-start` creates a Hyprland-native `headless` output and sets its mode through `wlr-randr`. It renders through the GPU selected by Hyprland. This is a compositor virtual output, not a `/sys/class/drm` connector. Remove it with `iddctl hyprland-stop`. Hyprland documents `hyprctl output create headless` and `output remove`; the output-management protocol applies its mode.
 
 ## Install (inside the guest only)
@@ -110,7 +110,7 @@ hyprctl monitors all
 nvidia-smi
 ```
 
-The compositor chooses its rendering GPU. Verify that it uses NVIDIA by checking `nvidia-smi` while the compositor is drawing or while a GPU workload is active. This project does not blindly rewrite compositor GPU-selection settings because those are desktop/session-specific and can prevent a Wayland session from starting.
+The compositor still has to successfully open the selected renderer. Verify NVIDIA utilization and compositor processes with `nvidia-smi` while the desktop is drawing; also inspect `journalctl --user -b` for KWin/Mutter renderer initialization errors. The installer writes only the dedicated Idd environment file and udev rules inside the guest.
 
 ## Stop / uninstall
 
