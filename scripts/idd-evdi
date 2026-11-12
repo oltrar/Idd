@@ -1,0 +1,96 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+NAME=${0##*/}
+SYSFS=/sys/devices/evdi
+
+usage() {
+  cat <<'EOF'
+Usage: idd-evdi {start|stop|status}
+
+Manage one EVDI virtual DRM display inside the current Linux system (intended
+to be run inside a PCI-passthrough VM).
+
+Commands:
+  start   Load EVDI if needed and add one virtual display
+  stop    Remove one EVDI virtual display and unload EVDI if possible
+  status  Show EVDI state and DRM devices
+EOF
+}
+
+need_root() {
+  if [[ ${EUID} -ne 0 ]]; then
+    echo "Run this command with sudo." >&2
+    exit 1
+  fi
+}
+
+show_nvidia() {
+  if command -v nvidia-smi >/dev/null 2>&1; then
+    nvidia-smi --query-gpu=name,driver_version,pci.bus_id --format=csv,noheader || true
+  else
+    echo "nvidia-smi not found (NVIDIA proprietary driver may not be installed)."
+  fi
+  if [[ -r /sys/module/nvidia_drm/parameters/modeset ]]; then
+    printf "nvidia_drm.modeset="
+    cat /sys/module/nvidia_drm/parameters/modeset
+  fi
+}
+
+case "${1:-}" in
+  start)
+    need_root
+    if [[ ! -d "$SYSFS" ]]; then
+      modprobe evdi initial_device_count=0
+    fi
+    if [[ ! -w "$SYSFS/add" ]]; then
+      echo "EVDI sysfs control '$SYSFS/add' is unavailable." >&2
+      echo "Check that the EVDI module is installed for kernel $(uname -r)." >&2
+      exit 1
+    fi
+    echo 1 > "$SYSFS/add"
+    echo "Requested one EVDI virtual display."
+    echo "NVIDIA status:"
+    show_nvidia
+    echo "DRM devices:"
+    ls -l /dev/dri 2>/dev/null || true
+    ;;
+  stop)
+    need_root
+    if [[ -w "$SYSFS/del" ]]; then
+      echo 1 > "$SYSFS/del"
+      echo "Requested removal of one EVDI virtual display."
+    else
+      echo "No EVDI delete control found; no display was removed."
+    fi
+    # Do not unload EVDI if any process still holds the device.
+    if [[ -d "$SYSFS" ]]; then
+      modprobe -r evdi 2>/dev/null || {
+        echo "EVDI remains loaded (possibly still in use); it was not force-unloaded."
+      }
+    fi
+    ;;
+  status)
+    echo "Kernel: $(uname -r)"
+    echo "EVDI module:"
+    lsmod | awk '$1 == "evdi" { print; found=1 } END { if (!found) print "not loaded" }'
+    if [[ -d "$SYSFS" ]]; then
+      for f in count; do
+        [[ -r "$SYSFS/$f" ]] && printf "evdi/%s: %s\n" "$f" "$(cat "$SYSFS/$f")"
+      done
+    else
+      echo "EVDI sysfs device not present."
+    fi
+    echo "NVIDIA status:"
+    show_nvidia
+    echo "DRM devices:"
+    ls -l /dev/dri 2>/dev/null || true
+    ;;
+  -h|--help|help|"")
+    usage
+    ;;
+  *)
+    usage >&2
+    exit 2
+    ;;
+esac
