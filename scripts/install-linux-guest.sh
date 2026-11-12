@@ -158,6 +158,12 @@ if [[ "$COMPOSITOR" == drm ]]; then
     install -Dm0755 "$workdir/Hermes-KMS/tools/hermes-kmsctl/hermes-kmsctl" /usr/local/bin/idd-kmsctl
 fi
 
+# Write the backend marker only after the selected backend has been installed.
+# From this point onward, the scoped uninstaller can safely clean up partial
+# post-build installation failures.
+install -d -m0755 /etc/idd
+printf '%s\n' "$COMPOSITOR" > /etc/idd/backend
+
 install -Dm0755 "$(dirname "$0")/iddctl" /usr/local/bin/iddctl
 install -Dm0755 "$(dirname "$0")/configure-compositor-gpus.sh" /usr/local/bin/idd-configure-compositor-gpus
 install -d -m0755 /etc/idd
@@ -185,5 +191,4 @@ fi
 printf '\nConfigured mode: %s\n' "$MODE"
 printf 'Check guest GPU/display devices: iddctl verify\n'
 printf 'The virtual display exists only inside this guest.\n'
-printf '%s\n' "$COMPOSITOR" > /etc/idd/backend
 
