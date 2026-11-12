@@ -13,6 +13,7 @@ fail() { printf 'IDD installer: %s\n' "$*" >&2; exit 1; }
 # systemd-detect-virt alone is not sufficient: some custom VFIO/QEMU setups
 # return "none". Also inspect DMI and PCI vendor/device strings.
 virt="$(systemd-detect-virt --vm 2>/dev/null || true)"
+[[ "$virt" == "none" ]] && virt=""
 dmi="$( { cat /sys/class/dmi/id/sys_vendor 2>/dev/null; cat /sys/class/dmi/id/product_name 2>/dev/null; } | tr '[:upper:]' '[:lower:]' )"
 pci_hint=''
 if command -v lspci >/dev/null 2>&1; then
