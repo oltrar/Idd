@@ -37,9 +37,11 @@ The project pins upstream Hermes-KMS `v0.4.1` rather than copying a second DRM d
 1. Boot the VM with the RTX 3080 Ti passed through and install the NVIDIA driver **inside the guest**.
 2. Confirm `nvidia-smi` works and `cat /sys/module/nvidia_drm/parameters/modeset` prints `Y`.
 3. The installer detects the running kernel's Arch package base via `/usr/lib/modules/$(uname -r)/pkgbase` and installs the corresponding `-headers` package. On your `7.3.1-1-cachyos` kernel this should resolve to `linux-cachyos-headers`. It then verifies that `/lib/modules/$(uname -r)/build/Makefile` exists before compiling.
-4. Clone this repository in the guest and run:
+4. Clone the implementation branch in the guest and run:
 
    ```sh
+   git clone --branch linux-guest-virtual-display-prototype --single-branch https://github.com/oltrar/Idd.git
+   cd Idd
    sudo bash ./scripts/install-linux-guest.sh --guest
    ```
 
@@ -54,7 +56,7 @@ If matching headers are not available, the DRM installer stops before compiling.
 
 ### Hyprland-only install
 
-Hyprland/Aquamarine does not currently use Hermes-KMS as a reliable secondary DRM output. To avoid loading a display card that Hyprland cannot drive, install only the compositor-native headless backend instead:
+The default installation configures NVIDIA rendering for Hyprland's headless output as well as installing the KDE/GNOME DRM endpoint. Use this reduced installation only for a Hyprland-only VM where you explicitly do not need the KDE/GNOME DRM connector. Hyprland/Aquamarine does not currently use Hermes-KMS as a reliable secondary DRM output.
 
 ```sh
 sudo bash ./scripts/install-linux-guest.sh --guest --compositor=hyprland
