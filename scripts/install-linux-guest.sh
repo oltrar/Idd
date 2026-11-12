@@ -53,6 +53,9 @@ printf 'Type INSTALL-IN-GUEST to continue: '
 read -r answer
 [[ "$answer" == INSTALL-IN-GUEST ]] || fail 'confirmation did not match; no changes made'
 
+[[ ! -e /etc/idd/backend ]] ||
+    fail "an Idd installation marker already exists at /etc/idd/backend. Use the existing installation or uninstall it from inside the guest first."
+
 [[ -r /etc/os-release ]] || fail '/etc/os-release missing'
 . /etc/os-release
 KVER=$(uname -r)
@@ -142,6 +145,9 @@ if [[ "$COMPOSITOR" == drm ]]; then
         fail "Hermes-KMS is already installed, loaded, or registered with DKMS. This installer will not replace an existing installation; remove/upgrade that installation explicitly first."
     fi
 
+    install -d -m0755 /etc/idd
+    printf '%s\\n' drm > /etc/idd/backend
+
     workdir=$(mktemp -d)
     cleanup() { rm -rf -- "$workdir"; }
     trap cleanup EXIT
@@ -150,6 +156,11 @@ if [[ "$COMPOSITOR" == drm ]]; then
     make -C "$workdir/Hermes-KMS" dkms-install
     make -C "$workdir/Hermes-KMS" tools/hermes-kmsctl/hermes-kmsctl
     install -Dm0755 "$workdir/Hermes-KMS/tools/hermes-kmsctl/hermes-kmsctl" /usr/local/bin/idd-kmsctl
+fi
+
+if [[ "$COMPOSITOR" == hyprland ]]; then
+    install -d -m0755 /etc/idd
+    printf '%s\\n' hyprland > /etc/idd/backend
 fi
 
 install -Dm0755 "$(dirname "$0")/iddctl" /usr/local/bin/iddctl
