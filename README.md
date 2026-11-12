@@ -9,7 +9,7 @@ This repository now contains an **installable guest-side prototype**. It provisi
 - A real DRM/KMS virtual display connector named `HERMES-1` inside the guest.
 - Synthetic EDID and modes without an HDMI/DP dummy plug.
 - Guest-only installation and lifecycle: the output is connected while the guest service owns it and disconnects when that owner exits.
-- The passed-through NVIDIA GPU remains available to the guest compositor as its render GPU; Hermes-KMS is a separate virtual display endpoint, not an NVIDIA physical connector. The compositor still chooses its renderer, so verify actual NVIDIA use with `nvidia-smi`.
+- The passed-through NVIDIA GPU is explicitly preferred as the compositor's render GPU: KWin receives an NVIDIA-first `KWIN_DRM_DEVICES` order, and Mutter receives its documented preferred-primary-GPU udev tag. Hermes-KMS is a separate virtual display endpoint, not an NVIDIA physical connector. Verify actual rendering with `nvidia-smi` after logging in again.
 - KDE Plasma / KWin and GNOME / Mutter use the guest DRM/KMS output.
 - Hyprland uses its compositor-native headless output helper (not a DRM connector; see limitations).
 
@@ -34,8 +34,8 @@ iddctl activate-kde       # KDE Wayland, from the logged-in user session
 iddctl activate-gnome     # opens GNOME Display Settings
 iddctl hyprland-start     # Hyprland only, from that user session, no sudo
 iddctl hyprland-stop
-sudo iddctl stop          # disconnect guest DRM output
-sudo iddctl start         # reconnect guest DRM output
+sudo iddctl stop          # KDE/GNOME: disconnect the guest DRM output
+sudo iddctl start         # KDE/GNOME: reconnect the guest DRM output
 ```
 
 Full instructions, isolation model, expected outputs and known limitations: [docs/linux-guest-display.md](docs/linux-guest-display.md).
@@ -47,7 +47,7 @@ The installer runs only on the OS where it is executed. PCI passthrough is the i
 ## Current limitations
 
 - Hermes-KMS is an external GPL-2.0 kernel-module dependency pinned at `v0.4.0`; this repository integrates and manages it rather than reimplementing the Linux DRM subsystem.
-- NVIDIA rendering is supported by the compositor when the guest selects the NVIDIA GPU. NVIDIA's Hermes-KMS capture/import path currently documents a CPU-copy fallback, so zero-copy NVIDIA streaming is not promised.
+- KWin/Mutter GPU preference is configured guest-locally, but must still be validated on the target driver. NVIDIA's Hermes-KMS capture/import path documents a CPU-copy fallback, so zero-copy NVIDIA streaming is not promised.
 - Hyprland's Aquamarine backend does not currently use Hermes-KMS/EVDI as a working secondary DRM output; the helper creates a Hyprland headless compositor output instead. That is not a DRM connector.
 - This prototype has not yet been run on the user's RTX 3080 Ti / NVIDIA 615.78.08 / CachyOS 7.3.1 guest. The guest install is the hardware validation step.
 
