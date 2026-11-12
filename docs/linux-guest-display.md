@@ -28,7 +28,7 @@ The project pins upstream Hermes-KMS `v0.4.1` rather than copying a second DRM d
 
 - **KDE Plasma / KWin Wayland:** the installer writes `KWIN_DRM_DEVICES=/dev/dri/idd-nvidia-card:/dev/dri/idd-virtual-card`, so the RTX 3080 Ti is first (render GPU) and Hermes-KMS is second (virtual output). KWin reads this when the session starts; log out/in after installation. The output is activated by KScreen; run `iddctl activate-kde` or enable it in System Settings → Display Configuration.
 - **GNOME Wayland:** the installer tags the RTX 3080 Ti PCI device with Mutter's documented `mutter-device-preferred-primary` udev tag, making it the primary renderer when it supports EGL. The Hermes-KMS card remains the virtual output. Log out/in after installation, then use Settings → Displays; `iddctl activate-gnome` opens that panel.
-- **Hyprland:** Hermes-KMS/EVDI are not currently a working KMS-output path for Aquamarine. The Hyprland installer writes `AQ_DRM_DEVICES=/dev/dri/idd-nvidia-card`; `iddctl hyprland-start` then creates a Hyprland-native `headless` output and sets its mode through `wlr-randr`. It is intended to render through the passed-through RTX 3080 Ti. This is a compositor virtual output, not a `/sys/class/drm` connector. Remove it with `iddctl hyprland-stop`. Hyprland documents `hyprctl output create headless` and `output remove`; the output-management protocol applies its mode.
+- **Hyprland:** Hermes-KMS/EVDI are not currently a working KMS-output path for Aquamarine. The default installer also writes `AQ_NO_KMS_REQUIREMENT=1` and `AQ_DRM_DEVICES=/dev/dri/idd-nvidia-card`; `iddctl hyprland-start` then creates a Hyprland-native `headless` output and sets its mode through `wlr-randr`. It is intended to render through the passed-through RTX 3080 Ti. This is a compositor virtual output, not a `/sys/class/drm` connector. Remove it with `iddctl hyprland-stop`. You can therefore use one default installation for KDE, GNOME and Hyprland without reinstalling when changing desktop sessions. Hyprland documents `hyprctl output create headless` and `output remove`; the output-management protocol applies its mode.
 
 ## Install (inside the guest only)
 
@@ -60,7 +60,7 @@ Hyprland/Aquamarine does not currently use Hermes-KMS as a reliable secondary DR
 sudo bash ./scripts/install-linux-guest.sh --guest --compositor=hyprland
 ```
 
-This mode installs `iddctl` and `wlr-randr` but does not build/load Hermes-KMS or install the systemd DRM-output service. It creates the output inside the logged-in Hyprland session. The installer creates stable guest symlinks `/dev/dri/idd-nvidia-card` and, when available, `/dev/dri/idd-nvidia-render`. It writes `AQ_NO_KMS_REQUIREMENT=1` and `AQ_DRM_DEVICES=/dev/dri/idd-nvidia-card` so Aquamarine can use the passed-through RTX 3080 Ti for a headless session even when no NVIDIA connector is physically connected. Log out/in after installation. This remains a compositor headless output, not a guest DRM connector.
+This optional mode is only for a Hyprland-only VM where you do not need the KDE/GNOME DRM connector. It installs `iddctl` and `wlr-randr` but does not build/load Hermes-KMS or install the systemd DRM-output service. It creates the output inside the logged-in Hyprland session. The installer creates stable guest symlinks `/dev/dri/idd-nvidia-card` and, when available, `/dev/dri/idd-nvidia-render`. It writes `AQ_NO_KMS_REQUIREMENT=1` and `AQ_DRM_DEVICES=/dev/dri/idd-nvidia-card` so Aquamarine can use the passed-through RTX 3080 Ti for a headless session even when no NVIDIA connector is physically connected. Log out/in after installation. This remains a compositor headless output, not a guest DRM connector.
 
 ## Use
 
@@ -91,14 +91,14 @@ Enable `HERMES-1` in Settings → Displays. Existing physical displays are not d
 
 ### Hyprland
 
-Use the `--compositor=hyprland` installation mode above. Run these commands as the logged-in Hyprland user, **without sudo**:
+Use the default DRM installation for a multi-desktop VM, or the optional `--compositor=hyprland` installation mode for a Hyprland-only VM. Run these commands as the logged-in Hyprland user, **without sudo**:
 
 ```sh
 iddctl hyprland-start
 iddctl hyprland-stop
 ```
 
-This creates/removes the named Hyprland headless output. The output disappears when removed or when the Hyprland session ends. It does not create a guest DRM connector. The Hyprland-only installer deliberately does not install Hermes-KMS or the systemd DRM-output service.
+This creates/removes the named Hyprland headless output. The output disappears when removed or when the Hyprland session ends. It does not create a guest DRM connector. With the default DRM installation, Hermes-KMS remains available for KDE/GNOME sessions but Hyprland is configured to use the NVIDIA card and its own headless output. The Hyprland-only installer deliberately does not install Hermes-KMS or the systemd DRM-output service.
 
 ## Verify the guest's display and renderer
 
