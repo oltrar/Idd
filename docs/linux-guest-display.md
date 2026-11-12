@@ -81,22 +81,18 @@ Enable `HERMES-1` in Settings → Displays. Existing physical displays are not d
 
 ### Hyprland
 
-The Hermes-KMS service should not be used as a Hyprland secondary KMS output. Disable it in the guest:
-
-```sh
-sudo systemctl disable --now idd-virtual-display.service
-```
-
-Run these commands as the logged-in Hyprland user, **without sudo**:
+Use the `--compositor=hyprland` installation mode above. Run these commands as the logged-in Hyprland user, **without sudo**:
 
 ```sh
 iddctl hyprland-start
 iddctl hyprland-stop
 ```
 
-This creates/removes the named Hyprland headless output. The output disappears when removed or when the Hyprland session ends. It does not create a guest DRM connector.
+This creates/removes the named Hyprland headless output. The output disappears when removed or when the Hyprland session ends. It does not create a guest DRM connector. The Hyprland-only installer deliberately does not install Hermes-KMS or the systemd DRM-output service.
 
 ## Verify the guest's display and renderer
+
+For the KDE/GNOME DRM backend:
 
 ```sh
 iddctl verify
@@ -105,9 +101,16 @@ ls /sys/class/drm/ | grep HERMES
 nvidia-smi
 ```
 
-Expected: a separate `hermes-kms` DRM card/connector appears in the guest alongside the NVIDIA DRM card. Do not expect `HERMES-1` to be listed under the NVIDIA card's `DP-*` or `HDMI-*` connectors. The separation is intentional. The compositor chooses its rendering GPU. Verify that it uses NVIDIA by checking `nvidia-smi` while the compositor is drawing or while a GPU workload is active. This project does not blindly rewrite compositor GPU-selection settings because those are desktop/session-specific and can prevent a Wayland session from starting.
+Expected: a separate `hermes-kms` DRM card/connector appears in the guest alongside the NVIDIA DRM card. Do not expect `HERMES-1` to be listed under the NVIDIA card's `DP-*` or `HDMI-*` connectors. The separation is intentional.
 
-NVIDIA-specific note: the Hermes-KMS driver can present the virtual connector, but its current capture stack documents a CPU-copy fallback for NVIDIA DMA-BUF import. That affects zero-copy capture/encoding, not the fact that the desktop compositor can render on the NVIDIA GPU. This project does not promise a zero-copy NVIDIA capture path. The renderer-selection and NVIDIA presentation path must still be measured on the RTX 3080 Ti guest before calling the full configuration validated.
+For the Hyprland-only backend, verify the compositor output instead:
+
+```sh
+hyprctl monitors all
+nvidia-smi
+```
+
+The compositor chooses its rendering GPU. Verify that it uses NVIDIA by checking `nvidia-smi` while the compositor is drawing or while a GPU workload is active. This project does not blindly rewrite compositor GPU-selection settings because those are desktop/session-specific and can prevent a Wayland session from starting.
 
 ## Stop / uninstall
 
