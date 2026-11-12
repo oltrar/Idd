@@ -15,11 +15,17 @@ This repository now contains an **installable guest-side prototype**. It provisi
 
 ## Install inside the VM
 
-For CachyOS / Arch or Debian / Ubuntu, with the NVIDIA driver installed **inside the guest** and NVIDIA DRM KMS enabled:
+The implementation is currently on the draft PR branch (until it is reviewed/merged). Clone that branch **inside the VM**:
 
 ```sh
+git clone --branch linux-guest-virtual-display-prototype --single-branch https://github.com/oltrar/Idd.git
+cd Idd
 sudo bash ./scripts/install-linux-guest.sh --guest
-# optional: only for a Hyprland-only VM where no KDE/GNOME DRM connector is needed:
+```
+
+For a Hyprland-only VM where you do not need the KDE/GNOME DRM connector, the optional compositor-only mode is:
+
+```sh
 sudo bash ./scripts/install-linux-guest.sh --guest --compositor=hyprland
 ```
 
