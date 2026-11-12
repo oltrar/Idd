@@ -145,6 +145,12 @@ if [[ "$COMPOSITOR" == drm ]]; then
         fail "Hermes-KMS is already installed, loaded, or registered with DKMS. This installer will not replace an existing installation; remove/upgrade that installation explicitly first."
     fi
 
+    # Record ownership before any DKMS writes so the scoped uninstaller can
+    # remove a partially completed install if fetching or building fails.
+    install -d -m0755 /etc/idd
+    printf '%s\n' drm > /etc/idd/backend
+    printf '%s\n' 0.4.1 > /etc/idd/hermes-kms-version
+
     workdir=$(mktemp -d)
     cleanup() { rm -rf -- "$workdir"; }
     trap cleanup EXIT
@@ -158,11 +164,12 @@ if [[ "$COMPOSITOR" == drm ]]; then
     install -Dm0755 "$workdir/Hermes-KMS/tools/hermes-kmsctl/hermes-kmsctl" /usr/local/bin/idd-kmsctl
 fi
 
-# Write the backend marker only after the selected backend has been installed.
-# From this point onward, the scoped uninstaller can safely clean up partial
-# post-build installation failures.
-install -d -m0755 /etc/idd
-printf '%s\n' "$COMPOSITOR" > /etc/idd/backend
+# The DRM branch wrote its marker before DKMS installation so failed
+# partial builds remain removable. Hyprland has no kernel module to build.
+if [[ "$COMPOSITOR" == hyprland ]]; then
+    install -d -m0755 /etc/idd
+    printf '%s\n' hyprland > /etc/idd/backend
+fi
 
 install -Dm0755 "$(dirname "$0")/iddctl" /usr/local/bin/iddctl
 install -Dm0755 "$(dirname "$0")/configure-compositor-gpus.sh" /usr/local/bin/idd-configure-compositor-gpus
