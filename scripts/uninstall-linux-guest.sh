@@ -5,6 +5,7 @@ set -Eeuo pipefail
 [[ ${1:-} == --guest ]] || { echo 'Refusing: pass --guest and run ONLY inside the VM.' >&2; exit 1; }
 
 virt="$(systemd-detect-virt --vm 2>/dev/null || true)"
+[[ "$virt" == "none" ]] && virt=""
 dmi="$( { cat /sys/class/dmi/id/sys_vendor 2>/dev/null; cat /sys/class/dmi/id/product_name 2>/dev/null; } | tr '[:upper:]' '[:lower:]' )"
 if [[ -z "$virt" && ! "$dmi" =~ (qemu|kvm|vmware|virtualbox|xen|bochs|virtual) ]]; then
     if ! command -v lspci >/dev/null 2>&1 || ! lspci -nn 2>/dev/null | grep -qiE 'QEMU Virtual Machine|VMware|VirtualBox|KVM|Xen|Bochs|Red Hat, Inc\.'; then
