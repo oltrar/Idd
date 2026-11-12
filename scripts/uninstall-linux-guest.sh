@@ -25,7 +25,12 @@ systemctl daemon-reload
 if command -v modprobe >/dev/null 2>&1; then
     modprobe -r hermes_kms 2>/dev/null || echo 'hermes_kms is still in use; reboot the guest before removing the remaining module files.' >&2
 fi
-rm -f /usr/local/bin/iddctl /usr/local/bin/idd-kmsctl
+rm -f /usr/local/bin/iddctl /usr/local/bin/idd-kmsctl /usr/local/bin/idd-configure-compositor-gpus
+rm -f /etc/udev/rules.d/61-idd-gpu-priority.rules /etc/environment.d/90-idd-virtual-display.conf
+if command -v udevadm >/dev/null 2>&1; then
+    udevadm control --reload-rules
+    udevadm trigger --subsystem-match=drm --action=change || true
+fi
 
 if command -v dkms >/dev/null 2>&1; then
     dkms status | awk -F'[/,:]' '$1 == "hermes-kms" && $2 != "" {print $2}' | sort -u | while read -r version; do
