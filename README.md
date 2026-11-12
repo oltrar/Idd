@@ -18,7 +18,9 @@ This repository now contains an **installable guest-side prototype**. It provisi
 For CachyOS / Arch or Debian / Ubuntu, with the NVIDIA driver installed **inside the guest** and NVIDIA DRM KMS enabled:
 
 ```sh
-sudo bash ./scripts/install-linux-guest.sh --guest             # KDE / GNOME DRM connector\n# or, for Hyprland's compositor-native output:\nsudo bash ./scripts/install-linux-guest.sh --guest --compositor=hyprland
+sudo bash ./scripts/install-linux-guest.sh --guest             # KDE / GNOME DRM connector
+# or, for Hyprland's compositor-native output:
+sudo bash ./scripts/install-linux-guest.sh --guest --compositor=hyprland
 ```
 
 The installer requires a VM marker and the typed confirmation `INSTALL-IN-GUEST`. It builds pinned Hermes-KMS `v0.4.0` against the running guest kernel through DKMS, builds the control utility, and installs/enables the guest systemd service. Matching kernel headers are required.
