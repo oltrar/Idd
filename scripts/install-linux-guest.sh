@@ -115,7 +115,7 @@ case "${ID:-}" in
         command -v pacman >/dev/null 2>&1 || fail 'pacman not found'
         pacman -S --needed --noconfirm wlr-randr pciutils
         if [[ "$COMPOSITOR" == drm ]]; then
-            pacman -S --needed --noconfirm base-devel dkms git
+            pacman -S --needed --noconfirm base-devel dkms git pahole
             install_arch_kernel_headers
         fi
         ;;
@@ -125,7 +125,7 @@ case "${ID:-}" in
         apt-get update
         apt-get install -y wlr-randr pciutils
         if [[ "$COMPOSITOR" == drm ]]; then
-            apt-get install -y build-essential dkms git
+            apt-get install -y build-essential dkms git dwarves
             install_debian_kernel_headers
         fi
         ;;
