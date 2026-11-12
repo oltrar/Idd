@@ -12,7 +12,7 @@ The supplied diagnostics show:
 - NVIDIA device at guest PCI address `03:00.0`;
 - a guest DRM card driven by `nvidia` with three disconnected DP connectors and one connected HDMI connector.
 
-The install does **not** alter any of those NVIDIA connector states. It loads a separate virtual DRM device called Hermes-KMS, then creates its own `HERMES-1` output. The installer configures the RTX 3080 Ti to be the compositor's primary rendering GPU; Hermes-KMS is only the display endpoint. KWin receives `KWIN_DRM_DEVICES` with the NVIDIA card first and Hermes-KMS second, and Mutter receives its documented `mutter-device-preferred-primary` udev tag for the RTX 3080 Ti PCI ID. Whether the proprietary NVIDIA stack successfully renders and presents to the virtual card still requires hardware validation. `iddctl verify` and `nvidia-smi` confirm the actual renderer after a fresh login.
+The install does **not** alter any of those NVIDIA connector states. It loads a separate virtual DRM device called Hermes-KMS, then creates its own `HERMES-1` output. The installer configures the RTX 3080 Ti to be the compositor's primary rendering GPU; Hermes-KMS is only the display endpoint. KWin receives `KWIN_DRM_DEVICES` with the NVIDIA card first and Hermes-KMS second. It also receives `KWIN_RENDER_NODES=/dev/dri/idd-nvidia-render` on KWin 6.7+, which restricts KWin's direct render-node opens to the NVIDIA render node. Mutter receives its documented `mutter-device-preferred-primary` udev tag for the RTX 3080 Ti PCI ID. Whether the NVIDIA stack successfully renders and presents to the virtual card still requires hardware validation. `iddctl verify` and `nvidia-smi` confirm the actual renderer after a fresh login.
 
 ## Isolation guarantee and safety boundary
 
@@ -36,7 +36,7 @@ The project pins upstream Hermes-KMS `v0.4.1` rather than copying a second DRM d
 
 1. Boot the VM with the RTX 3080 Ti passed through and install the NVIDIA driver **inside the guest**.
 2. Confirm `nvidia-smi` works and `cat /sys/module/nvidia_drm/parameters/modeset` prints `Y`.
-3. Ensure headers matching the running kernel are installed. On CachyOS this is normally `linux-cachyos-headers`; on Arch use the headers package matching the installed kernel.
+3. The installer detects the running kernel's Arch package base via `/usr/lib/modules/$(uname -r)/pkgbase` and installs the corresponding `-headers` package. On your `7.3.1-1-cachyos` kernel this should resolve to `linux-cachyos-headers`. It then verifies that `/lib/modules/$(uname -r)/build/Makefile` exists before compiling.
 4. Clone this repository in the guest and run:
 
    ```sh
@@ -48,7 +48,7 @@ The project pins upstream Hermes-KMS `v0.4.1` rather than copying a second DRM d
 
 ### Debian / Ubuntu
 
-Install a kernel with matching headers available through APT, install the NVIDIA driver in the guest, and use the same installer command. The script installs `build-essential`, `dkms`, `git`, `wlr-randr`, and `linux-headers-$(uname -r)`.
+Install the NVIDIA driver in the guest and use the same installer command. The script installs `build-essential`, `dkms`, `git`, `wlr-randr`, and the exact `linux-headers-$(uname -r)` package (or `custom-kernel-headers-$(uname -r)` when provided by a custom kernel vendor). It verifies the headers match before starting DKMS.
 
 If matching headers are not available, the DRM installer stops before compiling. Install matching headers or boot a kernel whose headers are available, then rerun.
 
@@ -60,7 +60,7 @@ Hyprland/Aquamarine does not currently use Hermes-KMS as a reliable secondary DR
 sudo bash ./scripts/install-linux-guest.sh --guest --compositor=hyprland
 ```
 
-This mode installs `iddctl` and `wlr-randr` but does not build/load Hermes-KMS or install the systemd DRM-output service. It creates the output inside the logged-in Hyprland session. The installer creates the stable guest symlink `/dev/dri/idd-nvidia-card` and writes `AQ_DRM_DEVICES=/dev/dri/idd-nvidia-card` so Aquamarine selects the passed-through RTX 3080 Ti as its rendering device. Log out/in after installation. This remains a compositor headless output, not a guest DRM connector.
+This mode installs `iddctl` and `wlr-randr` but does not build/load Hermes-KMS or install the systemd DRM-output service. It creates the output inside the logged-in Hyprland session. The installer creates stable guest symlinks `/dev/dri/idd-nvidia-card` and, when available, `/dev/dri/idd-nvidia-render`. It writes `AQ_NO_KMS_REQUIREMENT=1` and `AQ_DRM_DEVICES=/dev/dri/idd-nvidia-card` so Aquamarine can use the passed-through RTX 3080 Ti for a headless session even when no NVIDIA connector is physically connected. Log out/in after installation. This remains a compositor headless output, not a guest DRM connector.
 
 ## Use
 
@@ -111,7 +111,7 @@ ls /sys/class/drm/ | grep HERMES
 nvidia-smi
 ```
 
-Expected: a separate `hermes-kms` DRM card/connector appears in the guest alongside the NVIDIA DRM card. Do not expect `HERMES-1` to be listed under the NVIDIA card's `DP-*` or `HDMI-*` connectors. The separation is intentional.
+Expected: a separate `hermes-kms` DRM card/connector appears in the guest alongside the NVIDIA DRM card. Do not expect `HERMES-1` to be listed under the NVIDIA card's `DP-*` or `HDMI-*` connectors. The separation is intentional. Check `/dev/dri/idd-nvidia-render` exists; on KWin 6.7+, check the session environment contains `KWIN_RENDER_NODES=/dev/dri/idd-nvidia-render`. KWin's first `KWIN_DRM_DEVICES` entry is its primary DRM GPU.
 
 For the Hyprland-only backend, verify the compositor output instead:
 
@@ -140,6 +140,6 @@ The uninstaller has its own VM-marker check and confirmation. It preserves `/etc
 
 ## Test results and limitations
 
-The user-provided RTX 3080 Ti diagnostics are documented above. This repository cannot run kernel builds or Wayland compositor tests against that remote VM from CI, so the actual RTX 3080 Ti + NVIDIA 615.78.08 + CachyOS 7.3.1-1 installation remains to be validated by running the installer in that guest. A successful DKMS build proves the kernel module compiled, not that every compositor activates the monitor correctly.
+The user-provided RTX 3080 Ti diagnostics are documented above. The installer now installs matching CachyOS/Arch headers before DKMS and refuses to take over an independently installed Hermes-KMS module. This repository cannot run kernel builds or Wayland compositor tests against that remote VM from CI, so the actual RTX 3080 Ti + NVIDIA 615.78.08 + CachyOS 7.3.1-1 installation still needs to be validated by running the installer in that guest. A successful DKMS build proves the kernel module compiled, not that every compositor activates the monitor correctly.
 
 Hyprland has a distinct headless backend, not a DRM connector. Use `--compositor=hyprland` for that mode; it deliberately does not load Hermes-KMS. The KDE/GNOME path is the true guest DRM/KMS virtual monitor path.
