@@ -62,17 +62,23 @@ SUBSYSTEM=="drm", ENV{DEVTYPE}=="drm_minor", ENV{DEVNAME}=="/dev/dri/renderD[0-9
 SUBSYSTEM=="drm", ENV{DEVTYPE}=="drm_minor", ENV{DEVNAME}=="/dev/dri/card[0-9]*", DRIVERS=="hermes-kms", SYMLINK+="dri/idd-virtual-card"
 EOF
     install -d -m0755 "$ENV_DIR"
-    cat > "$ENV_FILE" <<'EOF'
+    {
+        cat <<'EOF'
 # Managed by Idd. Loaded by systemd user sessions at login.
 # KWin: first DRM device is primary; Hermes-KMS provides the virtual connector.
 KWIN_DRM_DEVICES=/dev/dri/idd-nvidia-card:/dev/dri/idd-virtual-card
-# KWin 6.7+ restricts direct renderer opens to this NVIDIA render node.
-KWIN_RENDER_NODES=/dev/dri/idd-nvidia-render
+EOF
+        if [[ -n "$nvidia_render_node" ]]; then
+            printf '%s\\n' '# KWin 6.7+ restricts direct renderer opens to the NVIDIA render node.' \
+                'KWIN_RENDER_NODES=/dev/dri/idd-nvidia-render'
+        fi
+        cat <<'EOF'
 # Hyprland/Aquamarine: use NVIDIA for a compositor-native headless output.
 # Aquamarine does not expose Hermes-KMS as a second KMS output.
 AQ_NO_KMS_REQUIREMENT=1
 AQ_DRM_DEVICES=/dev/dri/idd-nvidia-card
 EOF
+    } > "$ENV_FILE"
 else
     cat > "$RULE" <<EOF
 SUBSYSTEM=="drm", ENV{DEVTYPE}=="drm_minor", ENV{DEVNAME}=="/dev/dri/card[0-9]*", SUBSYSTEMS=="pci", ATTRS{vendor}=="$nvidia_vendor", ATTRS{device}=="$nvidia_device", SYMLINK+="dri/idd-nvidia-card", TAG+="mutter-device-preferred-primary"
