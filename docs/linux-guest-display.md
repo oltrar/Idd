@@ -142,7 +142,7 @@ Uninstall the guest integration and DKMS module:
 sudo bash ./scripts/uninstall-linux-guest.sh --guest
 ```
 
-The uninstaller has its own VM-marker check, project backend marker and confirmation. It only removes Hermes-KMS when `/etc/idd/backend` says this Idd installation installed the DRM backend; a Hyprland-only install will not remove an unrelated Hermes-KMS module. It preserves `/etc/idd/virtual-display.conf`; reboot the guest after DRM-backend removal to ensure the module is unloaded.
+The uninstaller has its own VM-marker check, project backend marker and confirmation. It only removes Hermes-KMS when `/etc/idd/backend` says this Idd installation installed the DRM backend; a Hyprland-only install will not remove an unrelated Hermes-KMS module. If a compositor still holds the DRM module open, the uninstaller disables boot autoload and exits without deleting DKMS/module sources; reboot the guest and rerun the same uninstall command. It preserves `/etc/idd/virtual-display.conf`.
 
 ## Test results and limitations
 
