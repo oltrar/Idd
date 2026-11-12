@@ -36,7 +36,7 @@ The project pins upstream Hermes-KMS `v0.4.1` rather than copying a second DRM d
 
 1. Boot the VM with the RTX 3080 Ti passed through and install the NVIDIA driver **inside the guest**.
 2. Confirm `nvidia-smi` works and `cat /sys/module/nvidia_drm/parameters/modeset` prints `Y`.
-3. The installer detects the running kernel's Arch package base via `/usr/lib/modules/$(uname -r)/pkgbase` and installs the corresponding `-headers` package. On your `7.3.1-1-cachyos` kernel this should resolve to `linux-cachyos-headers`. It then verifies that `/lib/modules/$(uname -r)/build/Makefile` exists before compiling.
+3. The installer detects the running kernel's Arch package base via `/usr/lib/modules/$(uname -r)/pkgbase` and installs the corresponding `-headers` package. On your `7.3.1-1-cachyos` kernel this should resolve to `linux-cachyos-headers`. It verifies both that `/lib/modules/$(uname -r)/build/Makefile` exists and that `make -s -C /lib/modules/$(uname -r)/build kernelrelease` exactly matches `uname -r`. If pacman updates the kernel while installing headers, reboot into that kernel and rerun the installer.
 4. Clone the implementation branch in the guest and run:
 
    ```sh
@@ -46,11 +46,11 @@ The project pins upstream Hermes-KMS `v0.4.1` rather than copying a second DRM d
    ```
 
 5. Read the safety prompt and type `INSTALL-IN-GUEST` only after verifying this is the VM.
-6. The default `--compositor=drm` installer installs `base-devel`, `dkms`, `git`, and `wlr-randr`, builds Hermes-KMS against the exact running kernel, builds the control utility, installs a guest systemd service, and starts the virtual DRM output at 1920x1080@60 by default.
+6. The default `--compositor=drm` installer installs `base-devel`, `dkms`, `git`, `pahole`, and `wlr-randr`, builds Hermes-KMS against the exact running kernel, builds the control utility, installs a guest systemd service, and starts the virtual DRM output at 1920x1080@60 by default.
 
 ### Debian / Ubuntu
 
-Install the NVIDIA driver in the guest and use the same installer command. The script installs `build-essential`, `dkms`, `git`, `wlr-randr`, and the exact `linux-headers-$(uname -r)` package (or `custom-kernel-headers-$(uname -r)` when provided by a custom kernel vendor). It verifies the headers match before starting DKMS.
+Install the NVIDIA driver in the guest and use the same installer command. The script installs `build-essential`, `dkms`, `git`, `dwarves` (pahole), `wlr-randr`, and the exact `linux-headers-$(uname -r)` package (or `custom-kernel-headers-$(uname -r)` when provided by a custom kernel vendor). It checks the header tree's `kernelrelease` equals the running kernel before starting DKMS.
 
 If matching headers are not available, the DRM installer stops before compiling. Install matching headers or boot a kernel whose headers are available, then rerun.
 
@@ -138,7 +138,7 @@ Uninstall the guest integration and DKMS module:
 sudo bash ./scripts/uninstall-linux-guest.sh --guest
 ```
 
-The uninstaller has its own VM-marker check and confirmation. It preserves `/etc/idd/virtual-display.conf`; reboot the guest after removal to ensure the module is unloaded.
+The uninstaller has its own VM-marker check, project backend marker and confirmation. It only removes Hermes-KMS when `/etc/idd/backend` says this Idd installation installed the DRM backend; a Hyprland-only install will not remove an unrelated Hermes-KMS module. It preserves `/etc/idd/virtual-display.conf`; reboot the guest after DRM-backend removal to ensure the module is unloaded.
 
 ## Test results and limitations
 
