@@ -60,6 +60,7 @@ if [[ "$MODE" == drm ]]; then
 SUBSYSTEM=="drm", ENV{DEVTYPE}=="drm_minor", ENV{DEVNAME}=="/dev/dri/card[0-9]*", SUBSYSTEMS=="pci", ATTRS{vendor}=="$nvidia_vendor", ATTRS{device}=="$nvidia_device", SYMLINK+="dri/idd-nvidia-card", TAG+="mutter-device-preferred-primary"
 SUBSYSTEM=="drm", ENV{DEVTYPE}=="drm_minor", ENV{DEVNAME}=="/dev/dri/renderD[0-9]*", SUBSYSTEMS=="pci", ATTRS{vendor}=="$nvidia_vendor", ATTRS{device}=="$nvidia_device", SYMLINK+="dri/idd-nvidia-render"
 SUBSYSTEM=="drm", ENV{DEVTYPE}=="drm_minor", ENV{DEVNAME}=="/dev/dri/card[0-9]*", DRIVERS=="hermes-kms", SYMLINK+="dri/idd-virtual-card"
+SUBSYSTEM=="drm", ENV{DEVTYPE}=="drm_minor", ENV{DEVNAME}=="/dev/dri/card[0-9]*", DRIVERS=="hermes_kms", SYMLINK+="dri/idd-virtual-card"
 EOF
     install -d -m0755 "$ENV_DIR"
     {
