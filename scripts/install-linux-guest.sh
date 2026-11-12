@@ -128,8 +128,9 @@ if [[ "$COMPOSITOR" == drm ]]; then
     # Upstream's dkms-install target removes prior Hermes-KMS DKMS registrations
     # before installing. Do not silently take over a driver another package owns.
     if [[ -d /sys/module/hermes_kms ]] ||
+       { command -v modinfo >/dev/null 2>&1 && modinfo hermes_kms >/dev/null 2>&1; } ||
        { command -v dkms >/dev/null 2>&1 && dkms status 2>/dev/null | grep -q '^hermes-kms/'; }; then
-        fail "Hermes-KMS is already loaded or registered with DKMS. This installer will not replace an existing installation; remove/upgrade that installation explicitly first."
+        fail "Hermes-KMS is already installed, loaded, or registered with DKMS. This installer will not replace an existing installation; remove/upgrade that installation explicitly first."
     fi
 
     workdir=$(mktemp -d)
