@@ -64,10 +64,14 @@ EOF
     install -d -m0755 "$ENV_DIR"
     cat > "$ENV_FILE" <<'EOF'
 # Managed by Idd. Loaded by systemd user sessions at login.
-# KWin primary DRM GPU is listed first; Hermes-KMS is the virtual output device.
+# KWin: first DRM device is primary; Hermes-KMS provides the virtual connector.
 KWIN_DRM_DEVICES=/dev/dri/idd-nvidia-card:/dev/dri/idd-virtual-card
-# KWin 6.7+ supports this allow-list for direct render-node opens.
+# KWin 6.7+ restricts direct renderer opens to this NVIDIA render node.
 KWIN_RENDER_NODES=/dev/dri/idd-nvidia-render
+# Hyprland/Aquamarine: use NVIDIA for a compositor-native headless output.
+# Aquamarine does not expose Hermes-KMS as a second KMS output.
+AQ_NO_KMS_REQUIREMENT=1
+AQ_DRM_DEVICES=/dev/dri/idd-nvidia-card
 EOF
 else
     cat > "$RULE" <<EOF
