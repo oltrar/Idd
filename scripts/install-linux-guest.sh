@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 REPO="https://github.com/MrOz59/Hermes-KMS.git"
-TAG="v0.4.1"
+COMMIT="143209286852430f5990a1fc8a95454b16bdea4c"
 MODE=${IDD_MODE:-1920x1080@60}
 COMPOSITOR=drm
 GUEST_ACK=0
@@ -145,22 +145,17 @@ if [[ "$COMPOSITOR" == drm ]]; then
         fail "Hermes-KMS is already installed, loaded, or registered with DKMS. This installer will not replace an existing installation; remove/upgrade that installation explicitly first."
     fi
 
-    install -d -m0755 /etc/idd
-    printf '%s\\n' drm > /etc/idd/backend
-
     workdir=$(mktemp -d)
     cleanup() { rm -rf -- "$workdir"; }
     trap cleanup EXIT
 
-    git clone --depth 1 --branch "$TAG" "$REPO" "$workdir/Hermes-KMS"
+    git init "$workdir/Hermes-KMS"
+    git -C "$workdir/Hermes-KMS" remote add origin "$REPO"
+    git -C "$workdir/Hermes-KMS" fetch --depth 1 origin "$COMMIT"
+    git -C "$workdir/Hermes-KMS" checkout --detach FETCH_HEAD
     make -C "$workdir/Hermes-KMS" dkms-install
     make -C "$workdir/Hermes-KMS" tools/hermes-kmsctl/hermes-kmsctl
     install -Dm0755 "$workdir/Hermes-KMS/tools/hermes-kmsctl/hermes-kmsctl" /usr/local/bin/idd-kmsctl
-fi
-
-if [[ "$COMPOSITOR" == hyprland ]]; then
-    install -d -m0755 /etc/idd
-    printf '%s\\n' hyprland > /etc/idd/backend
 fi
 
 install -Dm0755 "$(dirname "$0")/iddctl" /usr/local/bin/iddctl
@@ -189,4 +184,5 @@ fi
 
 printf '\nConfigured mode: %s\n' "$MODE"
 printf 'Check guest GPU/display devices: iddctl verify\n'
-printf 'The virtual display exists only inside this guest.\n'
+printf 'The virtual display exists only inside this guest.\n'printf '%s\n' "$COMPOSITOR" > /etc/idd/backend
+
