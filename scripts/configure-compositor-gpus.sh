@@ -69,7 +69,7 @@ EOF
 KWIN_DRM_DEVICES=/dev/dri/idd-nvidia-card:/dev/dri/idd-virtual-card
 EOF
         if [[ -n "$nvidia_render_node" ]]; then
-            printf '%s\\n' '# KWin 6.7+ restricts direct renderer opens to the NVIDIA render node.' \
+            printf '%s\n' '# KWin 6.7+ restricts direct renderer opens to the NVIDIA render node.' \
                 'KWIN_RENDER_NODES=/dev/dri/idd-nvidia-render'
         fi
         cat <<'EOF'
