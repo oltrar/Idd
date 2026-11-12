@@ -58,8 +58,17 @@ read -r answer
 KVER=$(uname -r)
 KDIR="/lib/modules/$KVER/build"
 
+verify_kernel_headers() {
+    [[ -e "$KDIR/Makefile" ]] || return 1
+    local header_release=''
+    header_release=$(make -s -C "$KDIR" kernelrelease 2>/dev/null || true)
+    [[ -n "$header_release" && "$header_release" == "$KVER" ]] ||
+        fail "headers at $KDIR report kernelrelease '${header_release:-unavailable}', but the running kernel is '$KVER'. Boot the kernel matching the installed headers (or install exact matching headers), then rerun."
+    return 0
+}
+
 install_arch_kernel_headers() {
-    [[ -e "$KDIR/Makefile" ]] && return 0
+    verify_kernel_headers && return 0
 
     local pkgbase='' headers_pkg=''
     if [[ -r "/usr/lib/modules/$KVER/pkgbase" ]]; then
@@ -80,12 +89,12 @@ install_arch_kernel_headers() {
     pacman -Si "$headers_pkg" >/dev/null 2>&1 ||
         fail "cannot find matching headers package '$headers_pkg' for kernel $KVER. Install the headers package built for this exact kernel, then rerun."
     pacman -S --needed --noconfirm "$headers_pkg"
-    [[ -e "$KDIR/Makefile" ]] ||
-        fail "headers package '$headers_pkg' did not provide $KDIR/Makefile. The running kernel and installed headers must match exactly."
+    verify_kernel_headers ||
+        fail "headers package '$headers_pkg' did not provide matching build files for running kernel $KVER. The running kernel and installed headers must match exactly."
 }
 
 install_debian_kernel_headers() {
-    [[ -e "$KDIR/Makefile" ]] && return 0
+    verify_kernel_headers && return 0
 
     local headers_pkg="linux-headers-$KVER"
     if ! apt-cache show "$headers_pkg" 2>/dev/null | grep '^Package: ' >/dev/null; then
@@ -94,8 +103,8 @@ install_debian_kernel_headers() {
     apt-cache show "$headers_pkg" 2>/dev/null | grep '^Package: ' >/dev/null ||
         fail "APT has no headers package for running kernel $KVER. Install the exact matching kernel headers from the kernel vendor, then rerun."
     apt-get install -y "$headers_pkg"
-    [[ -e "$KDIR/Makefile" ]] ||
-        fail "headers package '$headers_pkg' did not provide $KDIR/Makefile. The running kernel and installed headers must match exactly."
+    verify_kernel_headers ||
+        fail "headers package '$headers_pkg' did not provide matching build files for running kernel $KVER. The running kernel and installed headers must match exactly."
 }
 
 case "${ID:-}" in
@@ -123,7 +132,7 @@ case "${ID:-}" in
 esac
 
 if [[ "$COMPOSITOR" == drm ]]; then
-    [[ -e "$KDIR/Makefile" ]] || fail "kernel headers missing at $KDIR for running kernel $KVER"
+    verify_kernel_headers || fail "kernel headers missing or mismatched at $KDIR for running kernel $KVER"
 
     # Upstream's dkms-install target removes prior Hermes-KMS DKMS registrations
     # before installing. Do not silently take over a driver another package owns.
