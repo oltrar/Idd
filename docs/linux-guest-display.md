@@ -12,7 +12,7 @@ The supplied diagnostics show:
 - NVIDIA device at guest PCI address `03:00.0`;
 - a guest DRM card driven by `nvidia` with three disconnected DP connectors and one connected HDMI connector.
 
-The install does **not** alter any of those NVIDIA connector states. It loads a separate virtual DRM device called Hermes-KMS, then creates its own `HERMES-1` output. The real GPU remains the render device; the virtual KMS card is only the display endpoint.
+The install does **not** alter any of those NVIDIA connector states. It loads a separate virtual DRM device called Hermes-KMS, then creates its own `HERMES-1` output. The RTX 3080 Ti remains available as the guest's real render GPU; the virtual KMS card is only the display endpoint. The compositor still chooses its rendering device. Because the guest has the RTX passed through and its own physical HDMI output is attached to that device, the intended path is for KWin/Mutter to render on NVIDIA and copy/present to the virtual output. This must be verified on the running session with `nvidia-smi`; the installer does not force an undocumented renderer override.
 
 ## Isolation guarantee and safety boundary
 
@@ -105,9 +105,9 @@ ls /sys/class/drm/ | grep HERMES
 nvidia-smi
 ```
 
-Expected: a separate `hermes-kms` DRM card/connector appears in the guest alongside the NVIDIA DRM card. Do not expect `HERMES-1` to be listed under the NVIDIA card's `DP-*` or `HDMI-*` connectors. The separation is intentional. The compositor uses the NVIDIA GPU for rendering according to its GPU selection; verify the renderer with the compositor's diagnostics and `nvidia-smi` while rendering a workload.
+Expected: a separate `hermes-kms` DRM card/connector appears in the guest alongside the NVIDIA DRM card. Do not expect `HERMES-1` to be listed under the NVIDIA card's `DP-*` or `HDMI-*` connectors. The separation is intentional. The compositor chooses its rendering GPU. Verify that it uses NVIDIA by checking `nvidia-smi` while the compositor is drawing or while a GPU workload is active. This project does not blindly rewrite compositor GPU-selection settings because those are desktop/session-specific and can prevent a Wayland session from starting.
 
-NVIDIA-specific note: the Hermes-KMS driver can present the virtual connector, but its current capture stack documents a CPU-copy fallback for NVIDIA DMA-BUF import. That affects zero-copy capture/encoding, not the fact that the desktop compositor can render on the NVIDIA GPU. This project does not promise a zero-copy NVIDIA capture path.
+NVIDIA-specific note: the Hermes-KMS driver can present the virtual connector, but its current capture stack documents a CPU-copy fallback for NVIDIA DMA-BUF import. That affects zero-copy capture/encoding, not the fact that the desktop compositor can render on the NVIDIA GPU. This project does not promise a zero-copy NVIDIA capture path. The renderer-selection and NVIDIA presentation path must still be measured on the RTX 3080 Ti guest before calling the full configuration validated.
 
 ## Stop / uninstall
 
