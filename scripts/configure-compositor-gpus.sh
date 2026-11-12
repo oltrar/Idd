@@ -45,9 +45,11 @@ if [[ "$MODE" == drm ]]; then
         esac
     done
     [[ -n "$hermes_card" ]] || fail 'Hermes-KMS DRM card is not loaded; install/build the backend before configuring the compositor'
-    rule_nvidia='SUBSYSTEM=="drm", ENV{DEVTYPE}=="drm_minor", ENV{DEVNAME}=="/dev/dri/card[0-9]*", SUBSYSTEMS=="pci", ATTRS{vendor}=="'+"$nvidia_vendor"+'", ATTRS{device}=="'+"$nvidia_device"+'", SYMLINK+="dri/idd-nvidia-card", TAG+="mutter-device-preferred-primary"'
-    rule_hermes='SUBSYSTEM=="drm", ENV{DEVTYPE}=="drm_minor", ENV{DEVNAME}=="/dev/dri/card[0-9]*", DRIVERS=="hermes-kms", SYMLINK+="dri/idd-virtual-card"'
-    printf '%s\n%s\n' "$rule_nvidia" "$rule_hermes" > "$RULE"
+
+    cat > "$RULE" <<EOF
+SUBSYSTEM=="drm", ENV{DEVTYPE}=="drm_minor", ENV{DEVNAME}=="/dev/dri/card[0-9]*", SUBSYSTEMS=="pci", ATTRS{vendor}=="$nvidia_vendor", ATTRS{device}=="$nvidia_device", SYMLINK+="dri/idd-nvidia-card", TAG+="mutter-device-preferred-primary"
+SUBSYSTEM=="drm", ENV{DEVTYPE}=="drm_minor", ENV{DEVNAME}=="/dev/dri/card[0-9]*", DRIVERS=="hermes-kms", SYMLINK+="dri/idd-virtual-card"
+EOF
     install -d -m0755 "$ENV_DIR"
     cat > "$ENV_FILE" <<'EOF'
 # Managed by Idd. Loaded by systemd user sessions at login.
@@ -55,8 +57,9 @@ if [[ "$MODE" == drm ]]; then
 KWIN_DRM_DEVICES=/dev/dri/idd-nvidia-card:/dev/dri/idd-virtual-card
 EOF
 else
-    rule_nvidia='SUBSYSTEM=="drm", ENV{DEVTYPE}=="drm_minor", ENV{DEVNAME}=="/dev/dri/card[0-9]*", SUBSYSTEMS=="pci", ATTRS{vendor}=="'+"$nvidia_vendor"+'", ATTRS{device}=="'+"$nvidia_device"+'", SYMLINK+="dri/idd-nvidia-card", TAG+="mutter-device-preferred-primary"'
-    printf '%s\n' "$rule_nvidia" > "$RULE"
+    cat > "$RULE" <<EOF
+SUBSYSTEM=="drm", ENV{DEVTYPE}=="drm_minor", ENV{DEVNAME}=="/dev/dri/card[0-9]*", SUBSYSTEMS=="pci", ATTRS{vendor}=="$nvidia_vendor", ATTRS{device}=="$nvidia_device", SYMLINK+="dri/idd-nvidia-card", TAG+="mutter-device-preferred-primary"
+EOF
     install -d -m0755 "$ENV_DIR"
     cat > "$ENV_FILE" <<'EOF'
 # Managed by Idd. Loaded by user sessions at login.
@@ -73,7 +76,7 @@ fi
 
 [[ -e /dev/dri/idd-nvidia-card ]] || fail 'udev did not create /dev/dri/idd-nvidia-card; inspect 61-idd-gpu-priority.rules and udevadm info'
 if [[ "$MODE" == drm ]]; then
-    [[ -e /dev/dri/idd-virtual-card ]] || fail 'udev did not create /dev/dri/idd-virtual-card; inspect the Hermes-KMS driver name with readlink -f /sys/class/drm/'"$hermes_card"'/device/driver'
+    [[ -e /dev/dri/idd-virtual-card ]] || fail "udev did not create /dev/dri/idd-virtual-card; inspect driver binding for $hermes_card"
     printf 'KWin primary GPU: /dev/dri/idd-nvidia-card (%s, PCI %s)\n' "$nvidia_card" "$nvidia_pci"
     printf 'KWin virtual output card: /dev/dri/idd-virtual-card (%s)\n' "$hermes_card"
 else
