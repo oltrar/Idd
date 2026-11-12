@@ -88,10 +88,10 @@ install_debian_kernel_headers() {
     [[ -e "$KDIR/Makefile" ]] && return 0
 
     local headers_pkg="linux-headers-$KVER"
-    if ! apt-cache show "$headers_pkg" 2>/dev/null | grep -q '^Package: '; then
+    if ! apt-cache show "$headers_pkg" 2>/dev/null | grep '^Package: ' >/dev/null; then
         headers_pkg="custom-kernel-headers-$KVER"
     fi
-    apt-cache show "$headers_pkg" 2>/dev/null | grep -q '^Package: ' ||
+    apt-cache show "$headers_pkg" 2>/dev/null | grep '^Package: ' >/dev/null ||
         fail "APT has no headers package for running kernel $KVER. Install the exact matching kernel headers from the kernel vendor, then rerun."
     apt-get install -y "$headers_pkg"
     [[ -e "$KDIR/Makefile" ]] ||
