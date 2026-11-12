@@ -90,6 +90,7 @@ fi
 
 install -Dm0755 "$(dirname "$0")/iddctl" /usr/local/bin/iddctl
 install -Dm0755 "$(dirname "$0")/configure-compositor-gpus.sh" /usr/local/bin/idd-configure-compositor-gpus
+install -Dm0755 "$(dirname "$0")/configure-compositor-gpus.sh" /usr/local/bin/idd-configure-compositor-gpus
 install -d -m0755 /etc/idd
 if [[ ! -e /etc/idd/virtual-display.conf ]]; then
     install -m0644 /dev/null /etc/idd/virtual-display.conf
@@ -100,14 +101,15 @@ if [[ "$COMPOSITOR" == drm ]]; then
     install -Dm0644 "$(dirname "$0")/../systemd/idd-virtual-display.service" /etc/systemd/system/idd-virtual-display.service
     systemctl daemon-reload
     systemctl enable --now idd-virtual-display.service
+    /usr/local/bin/idd-configure-compositor-gpus drm
     printf '\nInstalled the guest-local Hermes-KMS DRM/KMS output.\n'
+    printf 'The RTX 3080 Ti is configured as the preferred render GPU for KWin and Mutter; log out/in to apply it.\n'
     printf 'KDE Wayland: iddctl activate-kde (or enable HERMES-1 in Display Configuration)\n'
     printf 'GNOME Wayland: iddctl activate-gnome\n'
 else
+    /usr/local/bin/idd-configure-compositor-gpus hyprland
     printf '\nInstalled the Hyprland headless-output helper only; no Hermes-KMS module or system service was installed.\n'
-    printf 'Add this to your Hyprland environment before starting Hyprland if the RTX is not already the selected renderer:\n'
-    printf '  env = AQ_DRM_DEVICES,/dev/dri/card1\n'
-    printf 'Use the card path that iddctl verify identifies as the NVIDIA device; card numbering can change after reboot.\n'
+    printf 'AQ_DRM_DEVICES is configured to use the passed-through NVIDIA GPU; log out/in to apply it.\n'
     printf 'Run iddctl hyprland-start as the logged-in Hyprland user (no sudo).\n'
 fi
 
