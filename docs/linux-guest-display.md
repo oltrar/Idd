@@ -1,85 +1,132 @@
-# Linux guest-local virtual display: design and setup
+# Linux guest virtual display (NVIDIA passthrough)
 
-## Requirement
+This project installs a **guest-local** virtual DRM/KMS display. The host must not run any IDD component and the host's NVIDIA connectors are never force-enabled or assigned EDIDs.
 
-The target is the Linux-guest equivalent of Windows IddSampleDriver:
+## Your reported machine
 
-- A virtual monitor is enumerated by the guest's display stack.
-- The monitor exists only while the VM/guest device is running.
-- The host must never enumerate the virtual monitor.
-- The passed-through RTX 30-series NVIDIA GPU is the guest's rendering GPU.
-- No HDMI/DP dummy plug and no host-side display/EDID configuration.
-- KDE Plasma Wayland, GNOME Wayland, and Hyprland are target compositors.
+The supplied diagnostics show:
 
-## Isolation model (non-negotiable)
+- NVIDIA GeForce RTX 3080 Ti, driver 615.78.08;
+- NVIDIA kernel module license `Dual MIT/GPL` (the NVIDIA open kernel-module flavor);
+- `nvidia_drm` KMS modesetting enabled (`Y`);
+- NVIDIA device at guest PCI address `03:00.0`;
+- a guest DRM card driven by `nvidia` with three disconnected DP connectors and one connected HDMI connector.
 
-PCI passthrough is the boundary. On the host, the secondary GPU must be bound to `vfio-pci` and assigned to the VM. The host should not load `nvidia` or `nouveau` for that device and must not create any virtual connector for it.
+The install does **not** alter any of those NVIDIA connector states. It loads a separate virtual DRM device called Hermes-KMS, then creates its own `HERMES-1` output. The real GPU remains the render device; the virtual KMS card is only the display endpoint.
 
-The virtual display driver/device is installed **inside the guest only**. Its DRM node and connector are therefore guest kernel objects. When the VM is stopped, those guest objects cease to exist; the host does not gain a monitor or connector.
+## Isolation guarantee and safety boundary
 
-Do not use `drm.edid_firmware`, NVIDIA EDID overrides, Xorg configuration, or a fake connector on the host. Those approaches act on whichever kernel owns the GPU and are specifically outside this project's design.
+The installer must be executed inside the VM. It checks for common hypervisor markers, requires `--guest`, and then asks for the exact confirmation `INSTALL-IN-GUEST`. It modifies only the kernel and filesystem of the OS where it runs. PCI passthrough is what makes that OS the guest: the host should bind the passed-through GPU functions to `vfio-pci` and must not load NVIDIA for that GPU.
 
-## Important Linux architecture distinction
+There is no host-side command, systemd unit, initramfs hook, EDID override, NVIDIA connector override, or host VKMS/EVDI installation in this project. When the VM is stopped, the guest's DRM card and connector are destroyed with the guest. When the guest's service is stopped, the Hermes-KMS owner fd closes and its connector is hot-unplugged.
 
-Windows IddCx provides an indirect-display framework and a user-mode frame-processing path. Linux has no directly equivalent, cross-compositor API that lets a generic user-mode driver register a monitor and select an arbitrary render GPU.
+**Do not run the installer or uninstaller on the hypervisor.** No script can cryptographically prove from inside a guest that a device is exclusively VFIO-assigned; host binding is a hypervisor responsibility.
 
-A virtual DRM/KMS device (for example VKMS or EVDI) can expose a guest-local connector, but that does **not by itself** make that connector part of the NVIDIA DRM device or guarantee that the compositor renders on NVIDIA. VKMS is a software display device. EVDI is a separate virtual DRM device and needs a userspace producer/manager. A compositor may render on one GPU and present to another only when its DRM/GBM/PRIME path supports that arrangement.
+## Backend and compositor support
 
-The required implementation therefore has two separable parts:
+The project pins upstream Hermes-KMS `v0.4.0` rather than copying a second DRM driver implementation into this repository. Hermes-KMS is an out-of-tree GPL-2.0 DRM/KMS driver with a synthetic EDID, a DRM connector and mode setting. This repository supplies the guest-only installer, lifetime service, and compositor controls.
 
-1. **Guest-local display endpoint:** a virtual DRM device/connector with hotplug, EDID/modes, enable/disable, and clean teardown.
-2. **NVIDIA rendering path:** ensure the compositor (or a dedicated capture/render process) creates its rendering device on the passed-through NVIDIA GPU and transfers frames to the virtual display endpoint efficiently. Validate PRIME dma-buf import/export and synchronization; do not assume it works merely because `nvidia-smi` sees the GPU.
+- **KDE Plasma / KWin Wayland:** use the `HERMES-1` DRM output. The output is activated by KScreen; run `iddctl activate-kde` after logging in, or enable it in System Settings → Display Configuration.
+- **GNOME Wayland:** use Settings → Displays; `iddctl activate-gnome` opens that panel. The Mutter activation API differs from KScreen and is not automated by this small controller.
+- **Hyprland:** Hermes-KMS/EVDI are not currently a working KMS-output path for Aquamarine. `iddctl hyprland-start` creates a Hyprland-native `headless` output and sets its mode through `wlr-randr`. It renders through the GPU selected by Hyprland. This is a compositor virtual output, not a `/sys/class/drm` connector. Remove it with `iddctl hyprland-stop`. Hyprland documents `hyprctl output create headless` and `output remove`; the output-management protocol applies its mode.
 
-A connector override on the NVIDIA card itself is not the preferred design: proprietary NVIDIA drivers do not expose a general Linux equivalent of IddCx for arbitrary virtual connectors, and forcing a physical connector connected is driver/version-dependent. It also couples the feature to NVIDIA's connector implementation rather than providing a portable guest driver.
+## Install (inside the guest only)
 
-## Guest setup: collect a baseline first
+### CachyOS / Arch
 
-Supported targets for investigation: Arch Linux and Debian, NVIDIA proprietary driver, RTX 30-series. Run the read-only diagnostic:
+1. Boot the VM with the RTX 3080 Ti passed through and install the NVIDIA driver **inside the guest**.
+2. Confirm `nvidia-smi` works and `cat /sys/module/nvidia_drm/parameters/modeset` prints `Y`.
+3. Ensure headers matching the running kernel are installed. On CachyOS this is normally `linux-cachyos-headers`; on Arch use the headers package matching the installed kernel.
+4. Clone this repository in the guest and run:
+
+   ```sh
+   sudo ./scripts/install-linux-guest.sh --guest
+   ```
+
+5. Read the safety prompt and type `INSTALL-IN-GUEST` only after verifying this is the VM.
+6. The installer installs `base-devel`, `dkms`, `git`, `wlr-randr`, builds Hermes-KMS against the exact running kernel, builds the small control utility, installs a guest systemd service, and starts the virtual display at 1920x1080@60 by default.
+
+### Debian / Ubuntu
+
+Install a kernel with matching headers available through APT, install the NVIDIA driver in the guest, and use the same installer command. The script installs `build-essential`, `dkms`, `git`, `wlr-randr`, and `linux-headers-$(uname -r)`.
+
+If matching headers are not available, the installer stops before compiling. Install matching headers or boot a kernel whose headers are available, then rerun.
+
+## Use
+
+The driver service starts at guest boot:
 
 ```sh
-chmod +x scripts/guest-gpu-diagnostics.sh
-sudo scripts/guest-gpu-diagnostics.sh
+iddctl status
+iddctl verify
 ```
 
-Record the output before installing a virtual display component. In particular, check:
+The default mode is 1920x1080@60. Change `/etc/idd/virtual-display.conf` to another accepted `IDD_MODE=WIDTHxHEIGHT@HZ`, then run `sudo systemctl restart idd-virtual-display.service`.
 
-- `nvidia-smi` sees the passed-through GPU.
-- `lspci -nnk` shows the NVIDIA device using the NVIDIA driver in the guest.
-- `/sys/module/nvidia_drm/parameters/modeset` is `Y`.
-- The DRM card associated with NVIDIA is identified by its PCI device path, not by assuming it is `card0`.
-- Existing physical connectors are recorded so tests can prove the virtual endpoint is separate.
+### KDE Plasma Wayland
 
-## Prototype options (not yet an integrated solution)
+```sh
+iddctl activate-kde
+```
 
-### VKMS
+Or open System Settings → Display Configuration and enable `HERMES-1`. This command only enables the virtual output; it does not disable or move your physical guest monitor.
 
-VKMS is useful for testing guest-local DRM connector enumeration and compositor hotplug behavior. It is software-only and does not satisfy the NVIDIA-rendering requirement by itself. Use it only as a display-endpoint test, not as the final solution.
+### GNOME Wayland
 
-### EVDI
+```sh
+iddctl activate-gnome
+```
 
-EVDI can expose a virtual DRM device and is a more relevant starting point for a userspace-managed virtual display. It is still a separate DRM device, not a connector owned by NVIDIA. A working implementation must provide/manage the EVDI device in the guest and prove that the chosen compositor can render on NVIDIA and present/copy frames to EVDI. Package availability and module signing differ between Arch and Debian; use distribution packages or build against the running kernel, and do not install anything on the host.
+Enable `HERMES-1` in Settings → Displays. Existing physical displays are not disabled by this tool.
 
-### NVIDIA fake connector / EDID override
+### Hyprland
 
-This is not a portable supported implementation. Driver parameter names and behavior vary by NVIDIA driver branch and kernel module flavor. Do not deploy a guessed `config_file` parameter or kernel EDID override as a general setup recipe. It must be independently verified for the exact guest driver version and must only be applied inside the guest.
+The Hermes-KMS service should not be used as a Hyprland secondary KMS output. Disable it in the guest:
 
-## Acceptance tests for a real implementation
+```sh
+sudo systemctl disable --now idd-virtual-display.service
+```
 
-A future implementation is not complete until all of these pass:
+Run these commands as the logged-in Hyprland user, **without sudo**:
 
-1. Start VM: guest sees a new DRM connector with a stable name and EDID.
-2. Display settings in KDE Wayland, GNOME Wayland, and Hyprland enumerate the monitor and can set supported modes.
-3. Render a GPU workload on the passed-through NVIDIA GPU; verify with `nvidia-smi` and compositor/backend diagnostics.
-4. Verify frame presentation to the virtual output without a physical plug.
-5. Stop the VM: host DRM connector list and host display configuration are byte-for-byte unchanged from before VM startup.
-6. Reboot host with VM stopped: no virtual connector appears and no dummy plug is required.
-7. Start/stop/restart the guest device repeatedly without stale connectors or compositor crashes.
-8. Test both Arch and Debian, documenting kernel, NVIDIA driver, and compositor versions.
+```sh
+iddctl hyprland-start
+iddctl hyprland-stop
+```
 
-## Host-side VFIO sanity check
+This creates/removes the named Hyprland headless output. The output disappears when removed or when the Hyprland session ends. It does not create a guest DRM connector.
 
-The host should bind the passthrough GPU and its associated functions (graphics and audio, as applicable) to `vfio-pci`. This is a hypervisor configuration task and is intentionally not automated by this guest project. Never run guest installation steps on the host.
+## Verify the guest's display and renderer
 
-## Current limitation
+```sh
+iddctl verify
+ls -l /dev/dri/by-path/ | grep -i hermes
+ls /sys/class/drm/ | grep HERMES
+nvidia-smi
+```
 
-This initial contribution is diagnostics and architecture documentation, not the virtual display driver itself. The next engineering step is a small guest-only prototype using a virtual DRM endpoint plus an NVIDIA render/presentation test, followed by compositor-specific integration. It would be misleading to advertise a complete IddCx replacement before those tests pass.
+Expected: a separate `hermes-kms` DRM card/connector appears in the guest alongside the NVIDIA DRM card. Do not expect `HERMES-1` to be listed under the NVIDIA card's `DP-*` or `HDMI-*` connectors. The separation is intentional. The compositor uses the NVIDIA GPU for rendering according to its GPU selection; verify the renderer with the compositor's diagnostics and `nvidia-smi` while rendering a workload.
+
+NVIDIA-specific note: the Hermes-KMS driver can present the virtual connector, but its current capture stack documents a CPU-copy fallback for NVIDIA DMA-BUF import. That affects zero-copy capture/encoding, not the fact that the desktop compositor can render on the NVIDIA GPU. This project does not promise a zero-copy NVIDIA capture path.
+
+## Stop / uninstall
+
+Stop the virtual display (the connector is disconnected when the owner process exits):
+
+```sh
+sudo iddctl stop
+```
+
+Uninstall the guest integration and DKMS module:
+
+```sh
+sudo ./scripts/uninstall-linux-guest.sh --guest
+```
+
+The uninstaller has its own VM-marker check and confirmation. It preserves `/etc/idd/virtual-display.conf`; reboot the guest after removal to ensure the module is unloaded.
+
+## Test results and limitations
+
+The user-provided RTX 3080 Ti diagnostics are documented above. This repository cannot run kernel builds or Wayland compositor tests against that remote VM from CI, so the actual RTX 3080 Ti + NVIDIA 615.78.08 + CachyOS 7.3.1-1 installation remains to be validated by running the installer in that guest. A successful DKMS build proves the kernel module compiled, not that every compositor activates the monitor correctly.
+
+Hyprland has a distinct headless backend, not a DRM connector. The KDE/GNOME path is the true guest DRM/KMS virtual monitor path.
