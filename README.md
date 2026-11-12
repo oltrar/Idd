@@ -9,7 +9,7 @@ This repository now contains an **installable guest-side prototype**. It provisi
 - A real DRM/KMS virtual display connector named `HERMES-1` inside the guest.
 - Synthetic EDID and modes without an HDMI/DP dummy plug.
 - Guest-only installation and lifecycle: the output is connected while the guest service owns it and disconnects when that owner exits.
-- The passed-through NVIDIA GPU is explicitly preferred as the compositor's render GPU: KWin receives an NVIDIA-first `KWIN_DRM_DEVICES` order, and Mutter receives its documented preferred-primary-GPU udev tag. Hermes-KMS is a separate virtual display endpoint, not an NVIDIA physical connector. Verify actual rendering with `nvidia-smi` after logging in again.
+- The passed-through NVIDIA GPU is explicitly selected as the compositor's primary GPU: KWin receives NVIDIA-first `KWIN_DRM_DEVICES` plus `KWIN_RENDER_NODES` where supported (KWin 6.7+); Mutter receives its documented preferred-primary-GPU udev tag. Hermes-KMS is a separate virtual display endpoint, not an NVIDIA physical connector. Verify actual rendering with `nvidia-smi` after logging in again.
 - KDE Plasma / KWin and GNOME / Mutter use the guest DRM/KMS output.
 - Hyprland uses its compositor-native headless output helper (not a DRM connector; see limitations).
 
@@ -23,7 +23,7 @@ sudo bash ./scripts/install-linux-guest.sh --guest             # KDE / GNOME DRM
 sudo bash ./scripts/install-linux-guest.sh --guest --compositor=hyprland
 ```
 
-The installer requires a VM marker and the typed confirmation `INSTALL-IN-GUEST`. It builds pinned Hermes-KMS `v0.4.1` against the running guest kernel through DKMS, builds the control utility, and installs/enables the guest systemd service. Matching kernel headers are required.
+The installer requires a VM marker and the typed confirmation `INSTALL-IN-GUEST`. It installs the headers matching the running kernel (CachyOS/Arch package base detection or Debian package lookup), builds pinned Hermes-KMS `v0.4.1` through DKMS, builds the control utility, and installs/enables the guest systemd service. It refuses to replace an existing Hermes-KMS DKMS installation.
 
 Default output: 1920x1080@60. Change `/etc/idd/virtual-display.conf` to change the mode.
 
@@ -49,7 +49,7 @@ The installer runs only on the OS where it is executed. PCI passthrough is the i
 ## Current limitations
 
 - Hermes-KMS is an external GPL-2.0 kernel-module dependency pinned at `v0.4.1`; this repository integrates and manages it rather than reimplementing the Linux DRM subsystem.
-- KWin/Mutter GPU preference is configured guest-locally, but must still be validated on the target driver. NVIDIA's Hermes-KMS capture/import path documents a CPU-copy fallback, so zero-copy NVIDIA streaming is not promised.
+- KWin/Mutter GPU preference is configured guest-locally, but must still be validated on the target driver. The compositor renders using NVIDIA and the virtual connector belongs to a separate DRM device; frame capture/streaming from Hermes-KMS on NVIDIA currently has a CPU-copy fallback, so zero-copy NVIDIA streaming is not promised.
 - Hyprland's Aquamarine backend does not currently use Hermes-KMS/EVDI as a working secondary DRM output; the helper creates a Hyprland headless compositor output instead. That is not a DRM connector.
 - This prototype has not yet been run on the user's RTX 3080 Ti / NVIDIA 615.78.08 / CachyOS 7.3.1 guest. The guest install is the hardware validation step.
 
