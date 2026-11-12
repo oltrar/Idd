@@ -52,7 +52,17 @@ Install a kernel with matching headers available through APT, install the NVIDIA
 
 If matching headers are not available, the DRM installer stops before compiling. Install matching headers or boot a kernel whose headers are available, then rerun.
 
-### Hyprland-only install\n\nHyprland/Aquamarine does not currently use Hermes-KMS as a reliable secondary DRM output. To avoid loading a display card that Hyprland cannot drive, install only the compositor-native headless backend instead:\n\n```sh\nsudo bash ./scripts/install-linux-guest.sh --guest --compositor=hyprland\n```\n\nThis mode installs `iddctl` and `wlr-randr` but does not build/load Hermes-KMS or install the systemd DRM-output service. It creates the output inside the logged-in Hyprland session. If another GPU is present and the RTX 3080 Ti is not already the primary renderer, set `AQ_DRM_DEVICES` in your Hyprland environment to the NVIDIA card. Your diagnostics currently identify `/dev/dri/card1` as NVIDIA; verify that path again after reboot because DRM card numbers can change.\n\n## Use
+### Hyprland-only install
+
+Hyprland/Aquamarine does not currently use Hermes-KMS as a reliable secondary DRM output. To avoid loading a display card that Hyprland cannot drive, install only the compositor-native headless backend instead:
+
+```sh
+sudo bash ./scripts/install-linux-guest.sh --guest --compositor=hyprland
+```
+
+This mode installs `iddctl` and `wlr-randr` but does not build/load Hermes-KMS or install the systemd DRM-output service. It creates the output inside the logged-in Hyprland session. The installer creates the stable guest symlink `/dev/dri/idd-nvidia-card` and writes `AQ_DRM_DEVICES=/dev/dri/idd-nvidia-card` so Aquamarine uses the passed-through RTX 3080 Ti. Log out/in after installation.
+
+## Use
 
 The driver service starts at guest boot:
 
