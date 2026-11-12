@@ -90,7 +90,6 @@ fi
 
 install -Dm0755 "$(dirname "$0")/iddctl" /usr/local/bin/iddctl
 install -Dm0755 "$(dirname "$0")/configure-compositor-gpus.sh" /usr/local/bin/idd-configure-compositor-gpus
-install -Dm0755 "$(dirname "$0")/configure-compositor-gpus.sh" /usr/local/bin/idd-configure-compositor-gpus
 install -d -m0755 /etc/idd
 if [[ ! -e /etc/idd/virtual-display.conf ]]; then
     install -m0644 /dev/null /etc/idd/virtual-display.conf
