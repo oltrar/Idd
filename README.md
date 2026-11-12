@@ -9,7 +9,7 @@ This repository now contains an **installable guest-side prototype**. It provisi
 - A real DRM/KMS virtual display connector named `HERMES-1` inside the guest.
 - Synthetic EDID and modes without an HDMI/DP dummy plug.
 - Guest-only installation and lifecycle: the output is connected while the guest service owns it and disconnects when that owner exits.
-- NVIDIA remains the guest's render GPU; Hermes-KMS is a separate virtual display endpoint, not an NVIDIA physical connector.
+- The passed-through NVIDIA GPU remains available to the guest compositor as its render GPU; Hermes-KMS is a separate virtual display endpoint, not an NVIDIA physical connector. The compositor still chooses its renderer, so verify actual NVIDIA use with `nvidia-smi`.
 - KDE Plasma / KWin and GNOME / Mutter use the guest DRM/KMS output.
 - Hyprland uses its compositor-native headless output helper (not a DRM connector; see limitations).
 
