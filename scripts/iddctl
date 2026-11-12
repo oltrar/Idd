@@ -52,6 +52,8 @@ case "${1:-}" in
         printf '%s\n' '=== Guest NVIDIA ==='
         if command -v nvidia-smi >/dev/null 2>&1; then
             nvidia-smi --query-gpu=name,driver_version,pci.bus_id --format=csv,noheader || true
+            printf '\nNVIDIA utilization/processes (check the compositor while a session is drawing):\n'
+            nvidia-smi || true
         else
             printf '%s\n' 'nvidia-smi not found'
         fi
