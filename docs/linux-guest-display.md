@@ -12,7 +12,7 @@ The supplied diagnostics show:
 - NVIDIA device at guest PCI address `03:00.0`;
 - a guest DRM card driven by `nvidia` with three disconnected DP connectors and one connected HDMI connector.
 
-The install does **not** alter any of those NVIDIA connector states. It loads a separate virtual DRM device called Hermes-KMS, then creates its own `HERMES-1` output. The RTX 3080 Ti is the rendering GPU; Hermes-KMS is only the display endpoint. The installer now configures the supported compositor selection mechanisms: KWin receives `KWIN_DRM_DEVICES` with the NVIDIA card first and Hermes-KMS second, and Mutter receives its documented `mutter-device-preferred-primary` udev tag for the RTX 3080 Ti PCI ID. This is still subject to hardware validation on your driver/kernel. `iddctl verify` and `nvidia-smi` are used to confirm the actual renderer after a fresh login.
+The install does **not** alter any of those NVIDIA connector states. It loads a separate virtual DRM device called Hermes-KMS, then creates its own `HERMES-1` output. The installer configures the RTX 3080 Ti to be the compositor's primary rendering GPU; Hermes-KMS is only the display endpoint. KWin receives `KWIN_DRM_DEVICES` with the NVIDIA card first and Hermes-KMS second, and Mutter receives its documented `mutter-device-preferred-primary` udev tag for the RTX 3080 Ti PCI ID. Whether the proprietary NVIDIA stack successfully renders and presents to the virtual card still requires hardware validation. `iddctl verify` and `nvidia-smi` confirm the actual renderer after a fresh login.
 
 ## Isolation guarantee and safety boundary
 
@@ -28,7 +28,7 @@ The project pins upstream Hermes-KMS `v0.4.0` rather than copying a second DRM d
 
 - **KDE Plasma / KWin Wayland:** the installer writes `KWIN_DRM_DEVICES=/dev/dri/idd-nvidia-card:/dev/dri/idd-virtual-card`, so the RTX 3080 Ti is first (render GPU) and Hermes-KMS is second (virtual output). KWin reads this when the session starts; log out/in after installation. The output is activated by KScreen; run `iddctl activate-kde` or enable it in System Settings → Display Configuration.
 - **GNOME Wayland:** the installer tags the RTX 3080 Ti PCI device with Mutter's documented `mutter-device-preferred-primary` udev tag, making it the primary renderer when it supports EGL. The Hermes-KMS card remains the virtual output. Log out/in after installation, then use Settings → Displays; `iddctl activate-gnome` opens that panel.
-- **Hyprland:** Hermes-KMS/EVDI are not currently a working KMS-output path for Aquamarine. `iddctl hyprland-start` creates a Hyprland-native `headless` output and sets its mode through `wlr-randr`. It renders through the GPU selected by Hyprland. This is a compositor virtual output, not a `/sys/class/drm` connector. Remove it with `iddctl hyprland-stop`. Hyprland documents `hyprctl output create headless` and `output remove`; the output-management protocol applies its mode.
+- **Hyprland:** Hermes-KMS/EVDI are not currently a working KMS-output path for Aquamarine. The Hyprland installer writes `AQ_DRM_DEVICES=/dev/dri/idd-nvidia-card`; `iddctl hyprland-start` then creates a Hyprland-native `headless` output and sets its mode through `wlr-randr`. It is intended to render through the passed-through RTX 3080 Ti. This is a compositor virtual output, not a `/sys/class/drm` connector. Remove it with `iddctl hyprland-stop`. Hyprland documents `hyprctl output create headless` and `output remove`; the output-management protocol applies its mode.
 
 ## Install (inside the guest only)
 
@@ -60,7 +60,7 @@ Hyprland/Aquamarine does not currently use Hermes-KMS as a reliable secondary DR
 sudo bash ./scripts/install-linux-guest.sh --guest --compositor=hyprland
 ```
 
-This mode installs `iddctl` and `wlr-randr` but does not build/load Hermes-KMS or install the systemd DRM-output service. It creates the output inside the logged-in Hyprland session. The installer creates the stable guest symlink `/dev/dri/idd-nvidia-card` and writes `AQ_DRM_DEVICES=/dev/dri/idd-nvidia-card` so Aquamarine uses the passed-through RTX 3080 Ti. Log out/in after installation.
+This mode installs `iddctl` and `wlr-randr` but does not build/load Hermes-KMS or install the systemd DRM-output service. It creates the output inside the logged-in Hyprland session. The installer creates the stable guest symlink `/dev/dri/idd-nvidia-card` and writes `AQ_DRM_DEVICES=/dev/dri/idd-nvidia-card` so Aquamarine selects the passed-through RTX 3080 Ti as its rendering device. Log out/in after installation. This remains a compositor headless output, not a guest DRM connector.
 
 ## Use
 
@@ -71,7 +71,7 @@ iddctl status
 iddctl verify
 ```
 
-The default mode is 1920x1080@60. Change `/etc/idd/virtual-display.conf` to another accepted `IDD_MODE=WIDTHxHEIGHT@HZ`, then run `sudo systemctl restart idd-virtual-display.service`.
+The default mode is 1920x1080@60. For the KDE/GNOME DRM backend, change `/etc/idd/virtual-display.conf` to another accepted `IDD_MODE=WIDTHxHEIGHT@HZ`, then run `sudo systemctl restart idd-virtual-display.service`. For Hyprland, change the same setting and rerun `iddctl hyprland-start`.
 
 ### KDE Plasma Wayland
 
