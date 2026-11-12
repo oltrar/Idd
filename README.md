@@ -18,7 +18,7 @@ This repository now contains an **installable guest-side prototype**. It provisi
 For CachyOS / Arch or Debian / Ubuntu, with the NVIDIA driver installed **inside the guest** and NVIDIA DRM KMS enabled:
 
 ```sh
-sudo ./scripts/install-linux-guest.sh --guest
+sudo bash ./scripts/install-linux-guest.sh --guest
 ```
 
 The installer requires a VM marker and the typed confirmation `INSTALL-IN-GUEST`. It builds pinned Hermes-KMS `v0.4.0` against the running guest kernel through DKMS, builds the control utility, and installs/enables the guest systemd service. Matching kernel headers are required.
@@ -54,5 +54,5 @@ The installer runs only on the OS where it is executed. PCI passthrough is the i
 Uninstall from inside the guest only:
 
 ```sh
-sudo ./scripts/uninstall-linux-guest.sh --guest
+sudo bash ./scripts/uninstall-linux-guest.sh --guest
 ```
