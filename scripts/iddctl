@@ -79,7 +79,7 @@ case "${1:-}" in
             done
         done
         printf '\n=== Idd compositor GPU selection ===\n'
-        for alias in /dev/dri/idd-nvidia-card /dev/dri/idd-virtual-card; do
+        for alias in /dev/dri/idd-nvidia-card /dev/dri/idd-nvidia-render /dev/dri/idd-virtual-card; do
             if [[ -e "$alias" ]]; then
                 ls -l "$alias"
             else
@@ -88,6 +88,13 @@ case "${1:-}" in
         done
         if [[ -r /etc/environment.d/90-idd-virtual-display.conf ]]; then
             cat /etc/environment.d/90-idd-virtual-display.conf
+        fi
+        if [[ -n "${KWIN_DRM_DEVICES:-}" || -n "${KWIN_RENDER_NODES:-}" ||
+              -n "${AQ_DRM_DEVICES:-}" ]]; then
+            printf '\nCurrent session GPU environment:\n'
+            env | grep -E '^(KWIN_DRM_DEVICES|KWIN_RENDER_NODES|AQ_DRM_DEVICES|AQ_NO_KMS_REQUIREMENT)=' || true
+        else
+            printf '\nGPU environment is not present in this shell. Log out/in after installation; verify the session manager imported /etc/environment.d.\n'
         fi
         printf '\n=== Hermes-KMS driver ===\n'
         if command -v modinfo >/dev/null 2>&1; then modinfo -F version hermes_kms 2>/dev/null || printf '%s\n' 'not installed'; fi
