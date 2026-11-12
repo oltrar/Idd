@@ -184,5 +184,6 @@ fi
 
 printf '\nConfigured mode: %s\n' "$MODE"
 printf 'Check guest GPU/display devices: iddctl verify\n'
-printf 'The virtual display exists only inside this guest.\n'printf '%s\n' "$COMPOSITOR" > /etc/idd/backend
+printf 'The virtual display exists only inside this guest.\n'
+printf '%s\n' "$COMPOSITOR" > /etc/idd/backend
 
