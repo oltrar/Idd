@@ -1,0 +1,17 @@
+[Unit]
+Description=IDD guest-local virtual display (Hermes-KMS DRM/KMS)
+Documentation=https://github.com/oltrar/Idd
+After=systemd-modules-load.service
+Before=display-manager.service
+ConditionPathExists=/etc/idd/virtual-display.conf
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/iddctl _hold
+Restart=on-failure
+RestartSec=2
+KillSignal=SIGTERM
+TimeoutStopSec=10
+
+[Install]
+WantedBy=multi-user.target
