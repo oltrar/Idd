@@ -1,0 +1,20 @@
+name: Linux shell syntax
+
+on:
+  push:
+    branches: [main, linux-guest-virtual-display-prototype]
+  pull_request:
+
+jobs:
+  bash-syntax:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Parse guest installer and control scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+          for script in scripts/*.sh scripts/iddctl; do
+            echo "Checking $script"
+            bash -n "$script"
+          done
