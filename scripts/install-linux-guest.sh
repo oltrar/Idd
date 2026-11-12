@@ -157,7 +157,7 @@ if [[ "$COMPOSITOR" == drm ]]; then
     systemctl enable --now idd-virtual-display.service
     /usr/local/bin/idd-configure-compositor-gpus drm
     printf '\nInstalled the guest-local Hermes-KMS DRM/KMS output.\n'
-    printf 'The RTX 3080 Ti is configured as the preferred render GPU for KWin and Mutter; log out/in to apply it.\n'
+    printf 'NVIDIA is configured as the preferred renderer for KWin/Mutter and for Hyprland headless sessions; log out/in to apply it.\n'
     printf 'KDE Wayland: iddctl activate-kde (or enable HERMES-1 in Display Configuration)\n'
     printf 'GNOME Wayland: iddctl activate-gnome\n'
 else
