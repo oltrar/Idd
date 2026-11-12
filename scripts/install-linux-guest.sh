@@ -55,23 +55,66 @@ read -r answer
 
 [[ -r /etc/os-release ]] || fail '/etc/os-release missing'
 . /etc/os-release
+KVER=$(uname -r)
+KDIR="/lib/modules/$KVER/build"
+
+install_arch_kernel_headers() {
+    [[ -e "$KDIR/Makefile" ]] && return 0
+
+    local pkgbase='' headers_pkg=''
+    if [[ -r "/usr/lib/modules/$KVER/pkgbase" ]]; then
+        pkgbase=$(<"/usr/lib/modules/$KVER/pkgbase")
+        headers_pkg="${pkgbase}-headers"
+    elif [[ "$KVER" == *cachyos* ]]; then
+        headers_pkg=linux-cachyos-headers
+    elif [[ "$KVER" == *-zen* ]]; then
+        headers_pkg=linux-zen-headers
+    elif [[ "$KVER" == *-hardened* ]]; then
+        headers_pkg=linux-hardened-headers
+    elif [[ "$KVER" == *-lts* ]]; then
+        headers_pkg=linux-lts-headers
+    else
+        headers_pkg=linux-headers
+    fi
+
+    pacman -Si "$headers_pkg" >/dev/null 2>&1 ||
+        fail "cannot find matching headers package '$headers_pkg' for kernel $KVER. Install the headers package built for this exact kernel, then rerun."
+    pacman -S --needed --noconfirm "$headers_pkg"
+    [[ -e "$KDIR/Makefile" ]] ||
+        fail "headers package '$headers_pkg' did not provide $KDIR/Makefile. The running kernel and installed headers must match exactly."
+}
+
+install_debian_kernel_headers() {
+    [[ -e "$KDIR/Makefile" ]] && return 0
+
+    local headers_pkg="linux-headers-$KVER"
+    if ! apt-cache show "$headers_pkg" >/dev/null 2>&1; then
+        headers_pkg="custom-kernel-headers-$KVER"
+    fi
+    apt-cache show "$headers_pkg" >/dev/null 2>&1 ||
+        fail "APT has no headers package for running kernel $KVER. Install the exact matching kernel headers from the kernel vendor, then rerun."
+    apt-get install -y "$headers_pkg"
+    [[ -e "$KDIR/Makefile" ]] ||
+        fail "headers package '$headers_pkg' did not provide $KDIR/Makefile. The running kernel and installed headers must match exactly."
+}
+
 case "${ID:-}" in
     arch|cachyos|endeavouros|manjaro)
         command -v pacman >/dev/null 2>&1 || fail 'pacman not found'
+        pacman -S --needed --noconfirm wlr-randr pciutils
         if [[ "$COMPOSITOR" == drm ]]; then
-            pacman -S --needed --noconfirm base-devel dkms git wlr-randr pciutils
-        else
-            pacman -S --needed --noconfirm wlr-randr pciutils
+            pacman -S --needed --noconfirm base-devel dkms git
+            install_arch_kernel_headers
         fi
         ;;
     debian|ubuntu)
         command -v apt-get >/dev/null 2>&1 || fail 'apt-get not found'
         export DEBIAN_FRONTEND=noninteractive
         apt-get update
+        apt-get install -y wlr-randr pciutils
         if [[ "$COMPOSITOR" == drm ]]; then
-            apt-get install -y build-essential dkms git "linux-headers-$(uname -r)" wlr-randr pciutils
-        else
-            apt-get install -y wlr-randr pciutils
+            apt-get install -y build-essential dkms git
+            install_debian_kernel_headers
         fi
         ;;
     *)
@@ -80,8 +123,14 @@ case "${ID:-}" in
 esac
 
 if [[ "$COMPOSITOR" == drm ]]; then
-    KDIR="/lib/modules/$(uname -r)/build"
-    [[ -e "$KDIR/Makefile" ]] || fail "kernel headers missing at $KDIR. Install headers matching $(uname -r), reboot into that kernel, then rerun."
+    [[ -e "$KDIR/Makefile" ]] || fail "kernel headers missing at $KDIR for running kernel $KVER"
+
+    # Upstream's dkms-install target removes prior Hermes-KMS DKMS registrations
+    # before installing. Do not silently take over a driver another package owns.
+    if [[ -d /sys/module/hermes_kms ]] ||
+       { command -v dkms >/dev/null 2>&1 && dkms status 2>/dev/null | grep -q '^hermes-kms/'; }; then
+        fail "Hermes-KMS is already loaded or registered with DKMS. This installer will not replace an existing installation; remove/upgrade that installation explicitly first."
+    fi
 
     workdir=$(mktemp -d)
     cleanup() { rm -rf -- "$workdir"; }
