@@ -22,6 +22,10 @@ There is no host-side command, systemd unit, initramfs hook, EDID override, NVID
 
 **Do not run the installer or uninstaller on the hypervisor.** No script can cryptographically prove from inside a guest that a device is exclusively VFIO-assigned; host binding is a hypervisor responsibility.
 
+### Host-side isolation check (hypervisor only)
+
+The guest BDF in the diagnostic output (`0000:03:00.0`) is a guest PCI address; do not assume it matches the host's BDF. On the hypervisor, find the passed-through GPU and its audio/USB functions with `lspci -nnk`. Each function assigned to the VM must be bound to `vfio-pci`, not `nvidia` or `nouveau`. Check the host's `/sys/class/drm` before the VM starts and again after it is shut down: this project must not add any host DRM card or connector. There is intentionally no host installer, systemd service, module, EDID file, initramfs hook, or display-manager configuration.
+
 ## Backend and compositor support
 
 The project pins upstream Hermes-KMS `v0.4.1` rather than copying a second DRM driver implementation into this repository. Hermes-KMS is an out-of-tree GPL-2.0 DRM/KMS driver with a synthetic EDID, a DRM connector and mode setting. The virtual card is not itself a render GPU. This repository supplies the guest-only installer, lifetime service, stable guest udev aliases, and compositor GPU-selection configuration: NVIDIA is primary for KWin/Mutter; Hermes-KMS is the secondary output-only card.
