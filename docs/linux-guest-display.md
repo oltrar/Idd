@@ -18,7 +18,7 @@ The install does **not** alter any of those NVIDIA connector states. It loads a 
 
 The installer must be executed inside the VM. It checks for common hypervisor markers, requires `--guest`, and then asks for the exact confirmation `INSTALL-IN-GUEST`. It modifies only the kernel and filesystem of the OS where it runs. PCI passthrough is what makes that OS the guest: the host should bind the passed-through GPU functions to `vfio-pci` and must not load NVIDIA for that GPU.
 
-There is no host-side command, systemd unit, initramfs hook, EDID override, NVIDIA connector override, or host VKMS/EVDI installation in this project. When the VM is stopped, the guest's DRM card and connector are destroyed with the guest. When the guest's service is stopped, the Hermes-KMS owner fd closes and its connector is hot-unplugged.
+There is no host-side command, systemd unit, initramfs hook, EDID override, NVIDIA connector override, or host VKMS/EVDI installation in this project. The generic `drm.edid_firmware` route is deliberately avoided: NVIDIA 615.78.08 has a reported leak when EDID overrides are probed on disconnected connectors ([NVIDIA forum report, October 26, 2026](https://forums.developer.nvidia.com/t/615-every-screen-lock-now-sends-hdcp-hotplug-uevents-which-trigger-an-nvidia-drm-edid-override-leak-on-disconnected-connectors-kmalloc-128/386981)). When the VM is stopped, the guest's DRM card and connector are destroyed with the guest. When the guest's service is stopped, the Hermes-KMS owner fd closes and its connector is hot-unplugged.
 
 **Do not run the installer or uninstaller on the hypervisor.** No script can cryptographically prove from inside a guest that a device is exclusively VFIO-assigned; host binding is a hypervisor responsibility.
 
@@ -62,7 +62,7 @@ The default installation configures NVIDIA rendering for Hyprland's headless out
 sudo bash ./scripts/install-linux-guest.sh --guest --compositor=hyprland
 ```
 
-This optional mode is only for a Hyprland-only VM where you do not need the KDE/GNOME DRM connector. It installs `iddctl` and `wlr-randr` but does not build/load Hermes-KMS or install the systemd DRM-output service. It creates the output inside the logged-in Hyprland session. The installer creates stable guest symlinks `/dev/dri/idd-nvidia-card` and, when available, `/dev/dri/idd-nvidia-render`. It writes `AQ_NO_KMS_REQUIREMENT=1` and `AQ_DRM_DEVICES=/dev/dri/idd-nvidia-card` so Aquamarine can use the passed-through RTX 3080 Ti for a headless session even when no NVIDIA connector is physically connected. Log out/in after installation. This remains a compositor headless output, not a guest DRM connector.
+This optional mode installs `iddctl` and `wlr-randr` but does not build/load Hermes-KMS or install the systemd DRM-output service. It creates the output inside the logged-in Hyprland session. The installer creates stable guest symlinks `/dev/dri/idd-nvidia-card` and, when available, `/dev/dri/idd-nvidia-render`. It writes `AQ_NO_KMS_REQUIREMENT=1` and `AQ_DRM_DEVICES=/dev/dri/idd-nvidia-card` so Aquamarine can use the passed-through RTX 3080 Ti for a headless session even when no NVIDIA connector is physically connected. Log out/in after installation. This remains a compositor headless output, not a guest DRM connector.
 
 ## Use
 
@@ -122,7 +122,7 @@ hyprctl monitors all
 nvidia-smi
 ```
 
-The compositor still has to successfully open the selected renderer. Verify NVIDIA utilization and compositor processes with `nvidia-smi` while the desktop is drawing; also inspect `journalctl --user -b` for KWin/Mutter renderer initialization errors. The installer writes only the dedicated Idd environment file and udev rules inside the guest.
+The compositor still has to successfully open the selected renderer. Verify NVIDIA utilization and compositor processes with `nvidia-smi` while the desktop is drawing; also inspect `journalctl --user -b` for KWin/Mutter renderer initialization errors. NVIDIA's open kernel-module flavor is indicated by the diagnostic's `Dual MIT/GPL` license; the userspace driver stack remains NVIDIA's driver. The installer writes only the dedicated Idd environment file and udev rules inside the guest.
 
 ## Stop / uninstall
 
