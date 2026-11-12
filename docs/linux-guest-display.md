@@ -40,7 +40,7 @@ The project pins upstream Hermes-KMS `v0.4.0` rather than copying a second DRM d
 4. Clone this repository in the guest and run:
 
    ```sh
-   sudo ./scripts/install-linux-guest.sh --guest
+   sudo bash ./scripts/install-linux-guest.sh --guest
    ```
 
 5. Read the safety prompt and type `INSTALL-IN-GUEST` only after verifying this is the VM.
@@ -120,7 +120,7 @@ sudo iddctl stop
 Uninstall the guest integration and DKMS module:
 
 ```sh
-sudo ./scripts/uninstall-linux-guest.sh --guest
+sudo bash ./scripts/uninstall-linux-guest.sh --guest
 ```
 
 The uninstaller has its own VM-marker check and confirmation. It preserves `/etc/idd/virtual-display.conf`; reboot the guest after removal to ensure the module is unloaded.
