@@ -34,6 +34,11 @@ if [[ -z "$virt" && ! "$dmi" =~ (qemu|kvm|vmware|virtualbox|xen|bochs|virtual) &
 fi
 
 [[ "$MODE" =~ ^([0-9]{3,5})x([0-9]{3,5})@([0-9]{1,3})$ ]] || fail "invalid IDD_MODE '$MODE' (expected WIDTHxHEIGHT@HZ)"
+width=${BASH_REMATCH[1]}
+height=${BASH_REMATCH[2]}
+refresh=${BASH_REMATCH[3]}
+(( width >= 640 && width <= 7680 && height >= 480 && height <= 4320 && refresh >= 24 && refresh <= 240 )) || \
+    fail "IDD_MODE '$MODE' is outside safe defaults (640x480..7680x4320, 24..240 Hz)"
 
 command -v nvidia-smi >/dev/null 2>&1 || fail 'nvidia-smi not found. Install the NVIDIA driver inside the guest first.'
 nvidia-smi --query-gpu=name,driver_version --format=csv,noheader || fail 'NVIDIA GPU is not accessible inside this OS'
