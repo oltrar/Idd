@@ -27,7 +27,7 @@ virt="$(systemd-detect-virt --vm 2>/dev/null || true)"
 dmi="$( { cat /sys/class/dmi/id/sys_vendor 2>/dev/null; cat /sys/class/dmi/id/product_name 2>/dev/null; } | tr '[:upper:]' '[:lower:]' )"
 pci_hint=''
 if command -v lspci >/dev/null 2>&1; then
-    pci_hint="$(lspci -nn 2>/dev/null | tr '[:upper:]' '[:lower:]' | grep -m1 -E 'qemu virtual machine|vmware|virtualbox|kvm|xen|bochs' || true)"
+    pci_hint="$(lspci -nnk 2>/dev/null | tr '[:upper:]' '[:lower:]' | grep -m1 -E 'qemu virtual machine|vmware|virtualbox|kvm|xen|bochs' || true)"
 fi
 if [[ -z "$virt" && ! "$dmi" =~ (qemu|kvm|vmware|virtualbox|xen|bochs|virtual) && -z "$pci_hint" ]]; then
     fail "no hypervisor marker detected (systemd-detect-virt=$([ -n "$virt" ] && echo "$virt" || echo none)). This installer only modifies the guest. Verify you are inside the VM; if this is a custom hypervisor that hides all VM identifiers, review the script and add your own marker before running it."
