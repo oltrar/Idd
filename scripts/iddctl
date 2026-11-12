@@ -78,6 +78,17 @@ case "${1:-}" in
                 printf '  %-22s %s\n' "$connector" "$(cat "$status")"
             done
         done
+        printf '\n=== Idd compositor GPU selection ===\n'
+        for alias in /dev/dri/idd-nvidia-card /dev/dri/idd-virtual-card; do
+            if [[ -e "$alias" ]]; then
+                ls -l "$alias"
+            else
+                printf '%s: not present\n' "$alias"
+            fi
+        done
+        if [[ -r /etc/environment.d/90-idd-virtual-display.conf ]]; then
+            cat /etc/environment.d/90-idd-virtual-display.conf
+        fi
         printf '\n=== Hermes-KMS driver ===\n'
         if command -v modinfo >/dev/null 2>&1; then modinfo -F version hermes_kms 2>/dev/null || printf '%s\n' 'not installed'; fi
         if [[ -x "$KMSCTL" ]]; then "$KMSCTL" version || true; "$KMSCTL" identity || true; fi
