@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 REPO="https://github.com/MrOz59/Hermes-KMS.git"
-TAG="v0.4.0"
+TAG="v0.4.1"
 MODE=${IDD_MODE:-1920x1080@60}
 COMPOSITOR=drm
 GUEST_ACK=0
