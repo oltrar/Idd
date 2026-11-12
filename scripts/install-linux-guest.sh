@@ -141,7 +141,7 @@ if [[ "$COMPOSITOR" == drm ]]; then
     # before installing. Do not silently take over a driver another package owns.
     if [[ -d /sys/module/hermes_kms ]] ||
        { command -v modinfo >/dev/null 2>&1 && modinfo hermes_kms >/dev/null 2>&1; } ||
-       { command -v dkms >/dev/null 2>&1 && dkms status 2>/dev/null | grep -q '^hermes-kms/'; }; then
+       { command -v dkms >/dev/null 2>&1 && dkms status 2>/dev/null | grep '^hermes-kms/' >/dev/null; }; then
         fail "Hermes-KMS is already installed, loaded, or registered with DKMS. This installer will not replace an existing installation; remove/upgrade that installation explicitly first."
     fi
 
