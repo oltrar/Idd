@@ -162,5 +162,5 @@ the helper identifies any restore operation that could not complete.
 Reference: Hyprland's official [hyprctl guide](https://wiki.hypr.land/configuring/core/advanced-configuration/using-hyprctl/),
 [Lua config guide](https://wiki.hypr.land/configuring/core/),
 [monitor API](https://wiki.hypr.land/configuring/core/monitors/),
-[versioned Hyprlang monitor syntax](https://wiki.hypr.land/0.54.0/configuring/monitors/),
+[versioned Hyprlang monitor syntax](https://wiki.hypr.land/0.51.0/Configuring/Monitors/),
 and [GPU selection guide](https://wiki.hypr.land/configuring/extra/multi-gpu/).
