@@ -1,0 +1,3 @@
+[submodule "vendor/Hermes-KMS"]
+	path = vendor/Hermes-KMS
+	url = https://github.com/MrOz59/Hermes-KMS.git

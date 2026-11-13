@@ -1,0 +1,52 @@
+name: Linux guest checks
+
+on:
+  push:
+    branches: [main, linux-guest-virtual-display-prototype]
+  pull_request:
+
+jobs:
+  bash-syntax:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install static analysis tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+      - name: Parse and lint guest installer and control scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+          for script in scripts/*.sh scripts/iddctl; do
+            echo "Checking $script"
+            bash -n "$script"
+            shellcheck --severity=warning "$script"
+          done
+          sudo install -Dm0755 /bin/true /usr/local/bin/iddctl
+          sudo systemd-analyze verify systemd/idd-virtual-display.service
+          sudo rm -f /usr/local/bin/iddctl
+
+  build-hermes-kms:
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    steps:
+      - name: Install Arch build dependencies
+        shell: bash
+        run: |
+          pacman -Syu --noconfirm --needed base-devel linux-headers dkms pahole git
+      - name: Build pinned Hermes-KMS driver and control utility
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init /tmp/Hermes-KMS
+          git -C /tmp/Hermes-KMS remote add origin https://github.com/MrOz59/Hermes-KMS.git
+          git -C /tmp/Hermes-KMS fetch --depth 1 origin 143209286852430f5990a1fc8a95454b16bdea4c
+          git -C /tmp/Hermes-KMS checkout --detach FETCH_HEAD
+          shopt -s nullglob
+          kernel_dirs=(/usr/lib/modules/*)
+          test "${#kernel_dirs[@]}" -gt 0
+          KVER="${kernel_dirs[0]##*/}"
+          test -f "/usr/lib/modules/$KVER/build/Makefile"
+          make -C /tmp/Hermes-KMS KERNELRELEASE="$KVER" KDIR="/usr/lib/modules/$KVER/build" modules
+          make -C /tmp/Hermes-KMS tools/hermes-kmsctl/hermes-kmsctl
