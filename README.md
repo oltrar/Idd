@@ -18,7 +18,7 @@ This repository now contains an **installable guest-side prototype**. It provisi
 The implementation is currently on the draft PR branch (until it is reviewed/merged). Clone that branch **inside the VM**:
 
 ```sh
-git clone --branch linux-guest-virtual-display-prototype --single-branch https://github.com/oltrar/Idd.git
+git clone --recurse-submodules --branch linux-guest-virtual-display-prototype --single-branch https://github.com/oltrar/Idd.git
 cd Idd
 sudo bash ./scripts/install-linux-guest.sh --guest
 ```
@@ -29,7 +29,7 @@ For a Hyprland-only VM where you do not need the KDE/GNOME DRM connector, the op
 sudo bash ./scripts/install-linux-guest.sh --guest --compositor=hyprland
 ```
 
-The installer requires a VM marker and the typed confirmation `INSTALL-IN-GUEST`. It installs the headers matching the running kernel (including a kernelrelease equality check), builds pinned Hermes-KMS `v0.4.1` through DKMS, builds the control utility, and installs/enables the guest systemd service. It also writes the Aquamarine GPU selection for Hyprland's headless-output mode. A guest marker records which backend Idd installed so uninstall cannot remove an unrelated Hermes-KMS module.
+The installer requires a VM marker and the typed confirmation `INSTALL-IN-GUEST`. It initializes the pinned Hermes-KMS `v0.4.1` submodule when available (or fetches the same exact commit for a plain clone), installs headers matching the running kernel with a kernelrelease equality check, builds the driver through DKMS, builds the control utility, and installs/enables the guest systemd service. It also writes the Aquamarine GPU selection for Hyprland's headless-output mode. A guest marker records which backend Idd installed so uninstall cannot remove an unrelated Hermes-KMS module.
 
 Default output: 1920x1080@60. Change `/etc/idd/virtual-display.conf` to change the mode.
 
