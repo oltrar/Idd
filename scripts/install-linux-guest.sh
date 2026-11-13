@@ -113,24 +113,20 @@ install_debian_kernel_headers() {
 case "${ID:-}" in
     arch|cachyos|endeavouros|manjaro)
         command -v pacman >/dev/null 2>&1 || fail 'pacman not found'
-        pacman -S --needed --noconfirm pciutils
+        pacman -S --needed --noconfirm pciutils wlr-randr
         if [[ "$COMPOSITOR" == drm ]]; then
             pacman -S --needed --noconfirm base-devel dkms git pahole
             install_arch_kernel_headers
-        else
-            pacman -S --needed --noconfirm wlr-randr
         fi
         ;;
     debian|ubuntu)
         command -v apt-get >/dev/null 2>&1 || fail 'apt-get not found'
         export DEBIAN_FRONTEND=noninteractive
         apt-get update
-        apt-get install -y pciutils
+        apt-get install -y pciutils wlr-randr
         if [[ "$COMPOSITOR" == drm ]]; then
             apt-get install -y build-essential dkms git dwarves
             install_debian_kernel_headers
-        else
-            apt-get install -y wlr-randr
         fi
         ;;
     *)
