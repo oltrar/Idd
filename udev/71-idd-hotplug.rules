@@ -1,0 +1,2 @@
+# Synthetic card change from idd -> a DRM hotplug event for Wayland compositors.
+ACTION=="change", SUBSYSTEM=="drm", KERNEL=="card[0-9]*", DRIVERS=="nvidia", ENV{SYNTH_ARG_IDD}=="1", ENV{HOTPLUG}="1"

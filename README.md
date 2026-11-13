@@ -1,22 +1,61 @@
-# Idd
+# Idd — guest-local NVIDIA display for Linux Wayland
 
-Linux research/prototype for a guest-local virtual display on a GPU-passthrough VM.
+Expose a software monitor on an unused connector of the NVIDIA GPU **inside a
+PCI-passthrough Linux VM**. No dummy plug, host EDID configuration, Xorg dummy
+server, or extra software-rendered DRM card. The output belongs to `nvidia-drm`.
 
-> **Scope and isolation guarantee:** all virtual-display devices described here must be created inside the guest. The host must not load a virtual-display module, create a DRM connector, install an EDID override, or alter its display configuration. When the VM is stopped, the guest's virtual display disappears with the VM. The passed-through GPU must remain assigned to VFIO on the host.
+Includes an executable implementation, installer, boot service, hotplug rule,
+EDID generator, rollback, and tests. It uses NVIDIA's existing KMS connector-force
+and EDID path. An existing `DP-1`/`HDMI-A-1` becomes a connected monitor; a new
+connector name is not allocated. The default monitor is `Idd NVIDIA`, 1920×1080
+at 60 Hz, SDR. This is not an implementation of Windows IddCx.
 
-## Status
+**Validation status:** control-path tests and CI are provided. Unplugged NVIDIA
+scanout and KDE/GNOME/Hyprland hardware acceptance still require the actual guest;
+they have not been established by the supplied telemetry. Driver branches and
+connector types can behave differently. See the [setup and validation
+guide](docs/linux-guest-display.md) for exact checks and limitations.
 
-This repository does **not yet contain a production Linux Indirect Display Driver equivalent**. The first Linux contribution adds guest diagnostics and documents the required architecture and validation gates. It deliberately does not claim that VKMS, EVDI, or an NVIDIA connector override is equivalent to Windows IddCx.
+## Install inside the guest
 
-See [Linux guest design and setup](docs/linux-guest-display.md).
-
-## Quick diagnostic
-
-Run inside the Linux guest:
+Requires Python 3.9+, systemd/udev, NVIDIA DRM KMS, and accessible DRM debugfs.
 
 ```sh
-chmod +x scripts/guest-gpu-diagnostics.sh
-sudo scripts/guest-gpu-diagnostics.sh
+git clone https://github.com/oltrar/Idd.git
+cd Idd
+# Before merge, check out the implementation branch shown in the PR.
+sudo bash scripts/install.sh --guest-only
+idd list
+# This address and unused port match the supplied 3080 Ti guest report:
+sudo idd configure --guest-only --pci 0000:03:00.0 --connector DP-1
+sudo systemctl enable --now idd-display.service
+sudo idd verify
+# After enabling this output in the Wayland desktop:
+sudo idd verify --active
 ```
 
-The script is read-only. It reports NVIDIA driver state, DRM devices/connectors, and whether the NVIDIA DRM KMS module is enabled. It does not change the host or guest configuration.
+Read the [full guide](docs/linux-guest-display.md) before removing your temporary
+cable. `verify` checks enumeration; `--active` also requires an assigned NVIDIA
+encoder. Confirm moving frames through guest capture/remote desktop software.
+The service enables the output before the next login screen.
+
+## Remove the monitor
+
+```sh
+sudo systemctl disable --now idd-display.service
+sudo idd down
+```
+
+This restores physical detection and clears Idd's EDID override. No monitor
+EEPROM is programmed. With the GPU kept on `vfio-pci` in the host, the guest
+monitor ceases to exist when the guest stops.
+
+## Development
+
+```sh
+python3 -m unittest discover -s tests -v
+python3 src/idd.py edid /tmp/idd.edid
+edid-decode --check /tmp/idd.edid
+```
+
+`scripts/guest-gpu-diagnostics.sh` remains read-only. No telemetry is uploaded.
