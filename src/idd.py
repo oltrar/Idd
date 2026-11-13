@@ -226,7 +226,11 @@ def modes_edid(profile):
         params = ((5200).to_bytes(2, "little") + (2900).to_bytes(2, "little")
                   + native["width"].to_bytes(2, "little") + native["height"].to_bytes(2, "little")
                   + bytes([0, 120, min(255, max(0, round(native["width"] / native["height"] * 100) - 100)), 0x77]))
-        metadata = bytes([0, 0, len(product)]) + product + bytes([1, 0, len(params)]) + params
+        # Generic digital interface for the software sink, RGB 8 bpc, no audio,
+        # content protection or claimed physical-link bandwidth capabilities.
+        interface = bytes([0xb1, 0x10, 0x02, 0, 0, 0, 0, 0, 0, 0])
+        metadata = (bytes([0, 0, len(product)]) + product + bytes([1, 0, len(params)]) + params
+                    + bytes([0x0f, 0, len(interface)]) + interface)
         records = [displayid_dtd(native, preferred=True)] + extended
         sections.append((metadata, records[:3]))
         sections.extend((b"", records[i:i + 5]) for i in range(3, len(records), 5))
