@@ -100,5 +100,5 @@ section "BOOT PARAMETERS"
 cat /proc/cmdline
 
 section "NOTES"
-echo "This report describes the guest only. It cannot verify host-side VFIO binding."
-echo "Run the equivalent read-only checks on the hypervisor separately if host isolation needs auditing."
+echo "This report describes the guest only and makes no host-side changes."
+echo "Host VFIO assignment remains the hypervisor's responsibility; this project installs no host component."
