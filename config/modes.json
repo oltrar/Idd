@@ -1,0 +1,9 @@
+{
+  "preferred": "1920x1080@60",
+  "modes": [
+    {"width": 1280, "height": 720, "refresh_rates": [60]},
+    {"width": 1920, "height": 1080, "refresh_rates": [60, 120, 144, 165, 240]},
+    {"width": 2560, "height": 1440, "refresh_rates": [60, 120, 144, 165]},
+    {"width": 3840, "height": 2160, "refresh_rates": [30, 60, 120]}
+  ]
+}

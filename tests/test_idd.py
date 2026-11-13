@@ -14,6 +14,42 @@ idd = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(idd)
 
 
+def decode_timings(data):
+    """Decode the on-wire EDID records independently of the encoder helpers."""
+    found = []
+
+    def legacy(d):
+        clock = int.from_bytes(d[:2], "little") * 10000
+        if not clock:
+            return
+        width, height = d[2] + (d[4] >> 4) * 256, d[5] + (d[7] >> 4) * 256
+        ht = width + d[3] + (d[4] & 15) * 256
+        vt = height + d[6] + (d[7] & 15) * 256
+        found.append((width, height, clock / ht / vt, clock))
+
+    for offset in range(54, 126, 18):
+        legacy(data[offset:offset + 18])
+    for offset in range(128, len(data), 128):
+        block = data[offset:offset + 128]
+        if block[0] == 0x02:
+            for index in range(block[2], 110, 18):
+                legacy(block[index:index + 18])
+        elif block[0] == 0x70:
+            assert sum(block[1:6 + block[2]]) % 256 == 0
+            position = 5
+            while position < 5 + block[2]:
+                length = block[position + 2]
+                if block[position] == 0x03:
+                    for index in range(position + 3, position + 3 + length, 20):
+                        d = block[index:index + 20]
+                        clock = (int.from_bytes(d[:3], "little") + 1) * 10000
+                        values = [int.from_bytes(d[i:i + 2], "little") + 1 for i in range(4, 20, 2)]
+                        width, hb, _, _, height, vb, _, _ = values
+                        found.append((width, height, clock / (width + hb) / (height + vb), clock))
+                position += 3 + length
+    return found
+
+
 class FakeKernel(idd.Kernel):
     def __init__(self, root):
         super().__init__(root / "sys", root / "debug/dri", root / "etc/config.json", root / "run")
@@ -71,6 +107,71 @@ class FakeKernel(idd.Kernel):
 
 
 class EdidTests(unittest.TestCase):
+    def test_default_modes_all_survive_binary_encoding(self):
+        data = idd.modes_edid(idd.DEFAULT_MODES)
+        decoded = decode_timings(data)
+        expected = {(m["width"], m["height"], rate) for m in idd.DEFAULT_MODES["modes"] for rate in m["refresh_rates"]}
+        self.assertEqual({(w, h, round(hz)) for w, h, hz, _ in decoded}, expected)
+        self.assertEqual(len(set(decoded)), len(expected))  # base/DisplayID preferred timing is identical
+        self.assertGreater(len(data), 128)
+        self.assertEqual(data[126], len(data) // 128 - 1)
+        for index in range(0, len(data), 128):
+            self.assertEqual(sum(data[index:index + 128]) % 256, 0)
+
+    def test_high_pixel_clocks_use_displayid_without_overflow(self):
+        decoded = decode_timings(idd.modes_edid(idd.DEFAULT_MODES))
+        mode = next(t for t in decoded if t[:2] == (3840, 2160) and round(t[2]) == 120)
+        self.assertGreater(mode[3], 1000000000)
+        self.assertAlmostEqual(mode[2], 120, delta=0.01)
+        qhd = next(t for t in decoded if t[:2] == (2560, 1440) and round(t[2]) == 165)
+        self.assertGreater(qhd[3], 655350000)
+
+    def test_preferred_1440p144_is_first_and_fits_legacy_descriptor(self):
+        profile = dict(idd.DEFAULT_MODES, preferred="2560x1440@144")
+        first = decode_timings(idd.modes_edid(profile))[0]
+        self.assertEqual(first[:2], (2560, 1440))
+        self.assertAlmostEqual(first[2], 144, delta=0.1)
+
+    def test_fractional_refresh_and_nonstandard_dimensions(self):
+        profile = {"preferred": "1920x1080@59.94", "modes": [
+            {"width": 1920, "height": 1080, "refresh_rates": [59.94]},
+            {"width": 3440, "height": 1440, "refresh_rates": [100]}]}
+        timings = decode_timings(idd.modes_edid(profile))
+        self.assertAlmostEqual(timings[0][2], 59.94, delta=0.01)
+        self.assertEqual(timings[1][:2], (3440, 1440))
+
+    def test_range_descriptor_covers_all_advertised_timings(self):
+        data = idd.modes_edid(idd.DEFAULT_MODES)
+        r = data[108:126]
+        limits = [r[5 + i] + (255 if r[4] & (1 << i) else 0) for i in range(4)]
+        for t in idd.profile_timings(idd.DEFAULT_MODES):
+            self.assertLessEqual(limits[0], t["actual_hz"])
+            self.assertGreaterEqual(limits[1], t["actual_hz"])
+            khz = t["clock_khz"] / (t["width"] + t["hblank"])
+            self.assertLessEqual(limits[2], khz)
+            self.assertGreaterEqual(limits[3], khz)
+            self.assertGreaterEqual(r[9] * 10000, t["clock_khz"])
+
+    def test_maximum_mode_count_across_extension_blocks(self):
+        profile = {"preferred": "1920x1080@60", "modes": [
+            {"width": 1920, "height": 1080, "refresh_rates": [60]},
+            {"width": 3840, "height": 2160, "refresh_rates": list(range(83, 106))}]}
+        data = idd.modes_edid(profile)
+        self.assertEqual(len(set(decode_timings(data))), 24)
+        self.assertLessEqual(len(data), 1024)
+
+    def test_invalid_profiles_are_rejected(self):
+        base = {"preferred": "1920x1080@60", "modes": [{"width": 1920, "height": 1080, "refresh_rates": [60]}]}
+        invalid = [None, {}, dict(base, typo=1), dict(base, preferred="1920x1080@144"), dict(base, modes=[])]
+        for rates in ([True], [0], [float("nan")], [float("inf")], [60, 60], ["144"], []):
+            invalid.append(dict(base, modes=[dict(base["modes"][0], refresh_rates=rates)]))
+        invalid.append(dict(base, modes=[dict(base["modes"][0], width=True)]))
+        invalid.append(dict(base, preferred="3840x2160@120", modes=[
+            {"width": 3840, "height": 2160, "refresh_rates": [120]}]))
+        for profile in invalid:
+            with self.subTest(profile=profile), self.assertRaises(idd.IddError):
+                idd.modes_edid(profile)
+
     def test_1080p_timing_and_checksums(self):
         e = idd.make_edid()
         self.assertEqual(len(e), 128)
@@ -118,6 +219,69 @@ class ControlTests(unittest.TestCase):
         self.assertEqual(endpoint.parent.name, "5")
         self.assertEqual(output.name, "card7-DP-1")
         self.assertEqual(len(self.k.cards()), 1)
+
+    def test_default_configuration_creates_an_editable_profile(self):
+        cfg = idd.configure(self.k, "0000:03:00.0", "DP-1")
+        path = self.k.config.parent / "modes.json"
+        self.assertEqual(json.loads(path.read_text()), idd.DEFAULT_MODES)
+        self.assertEqual(cfg["modes_file"], str(path))
+        self.assertEqual(len(cfg["requested_modes"]), 13)
+        profile = {"preferred": "1920x1080@60", "modes": [
+            {"width": 1920, "height": 1080, "refresh_rates": [60, 120]}]}
+        path.write_text(json.dumps(profile))
+        reloaded = self.k.load()
+        self.assertNotEqual(cfg["edid"], reloaded["edid"])
+        self.assertEqual(len(reloaded["requested_modes"]), 2)
+
+    def test_original_1080p_configuration_upgrades_but_custom_edid_stays(self):
+        path = self.k.config.parent / "modes.json"
+        path.write_text(json.dumps(idd.DEFAULT_MODES))
+        self.assertEqual(self.k.load()["edid"], idd.make_edid().hex())  # explicit --edid
+        original = dict(self.cfg)
+        original.pop("edid_source")
+        self.k.config.write_text(json.dumps(original))
+        before = self.k.config.read_bytes()
+        loaded = self.k.load()
+        self.assertEqual(len(loaded["requested_modes"]), 13)
+        self.assertEqual(self.k.config.read_bytes(), before)
+
+    def test_apply_changes_active_edid_without_reconfiguration(self):
+        idd.up(self.k, self.cfg)
+        cfg = dict(self.cfg, edid=idd.modes_edid(idd.DEFAULT_MODES).hex())
+        result = idd.apply_config(self.k, cfg)
+        self.assertTrue(result["edid_matches"])
+        self.assertGreater(result["edid_bytes"], 128)
+        self.assertEqual(json.loads(self.k.state.read_text())["edid"], cfg["edid"])
+
+    def test_failed_apply_restores_previous_display(self):
+        idd.up(self.k, self.cfg)
+        cfg = dict(self.cfg, edid=idd.modes_edid(idd.DEFAULT_MODES).hex())
+        actual_write = self.k.write
+        failed = False
+
+        def fail_new_mode_once(path, data):
+            nonlocal failed
+            if path == self.k.output / "status" and data == b"on\n" and not failed:
+                failed = True
+                raise OSError("new EDID rejected")
+            actual_write(path, data)
+
+        with mock.patch.object(self.k, "write", side_effect=fail_new_mode_once):
+            with self.assertRaisesRegex(idd.IddError, "previous display restored"):
+                idd.apply_config(self.k, cfg)
+        self.assertEqual(json.loads(self.k.state.read_text())["edid"], self.cfg["edid"])
+        self.assertTrue(idd.verify(self.k, self.cfg)["edid_matches"])
+
+    def test_invalid_edited_profile_does_not_disconnect_active_display(self):
+        idd.up(self.k, self.cfg)
+        path = self.k.config.parent / "modes.json"
+        path.write_text('{"modes": "invalid"}')
+        self.k.config.write_text(json.dumps(dict(self.cfg, modes_file=str(path))))
+        writes = len(self.k.writes)
+        with self.assertRaises(idd.IddError):
+            idd.apply_config(self.k, self.k.load())
+        self.assertEqual(len(self.k.writes), writes)
+        self.assertTrue(idd.verify(self.k, self.cfg)["edid_matches"])
 
     @unittest.skipIf(os.name == "nt", "PCI directory names require a POSIX filesystem")
     def test_pci_debugfs_layout(self):

@@ -9,9 +9,10 @@ device or cross-GPU frame-copy driver is involved.
 
 This is a software monitor on an **existing** `DP-1` or `HDMI-A-1`, not an
 implementation of Windows IddCx or an unlimited-output driver. It consumes an
-available NVIDIA display head. The default EDID advertises 1920×1080 at 60 Hz,
-SDR. A custom EDID can request other modes, subject to NVIDIA validation. HDR,
-VRR, HDMI audio, and high-refresh modes are not promised by the default profile.
+available NVIDIA display head. Its generated EDID advertises the resolutions and
+refresh rates in `/etc/idd/modes.json`, with 1920×1080/60 Hz initially preferred.
+The default requests include high-refresh 1080p/1440p and 4K modes, subject to
+NVIDIA validation. The profile is SDR; it does not advertise HDR, VRR or audio.
 
 The supplied guest report identifies an RTX 3080 Ti at `0000:03:00.0`, driver
 `615.78.08`, open kernel module (`Dual MIT/GPL`), and `nvidia_drm modeset=Y`.
@@ -28,10 +29,110 @@ and [DisplayPort connector implementation](https://github.com/NVIDIA/open-gpu-ke
 This supports using the driver's existing force path; remaining link/modeset
 behavior still requires hardware evidence.
 
-**Arch/CachyOS, Debian, KDE, GNOME, and Hyprland remain hardware acceptance
-targets.** The supplied report was taken with HDMI connected. Automated fixtures
-cannot establish that a disconnected port will successfully present frames.
-DisplayPort link training and driver mode validation may still prevent scanout.
+The user has since confirmed successful installation and a working monitor on
+CachyOS. Two probe reports show disconnected `DP-1` becoming connected with an
+active NVIDIA CRTC at 1920×1080/60 Hz; the temporary HDMI monitor remained
+connected during those checks. This validates the original mode on that guest.
+Additional modes, cold boot with every cable removed, Debian, and each specific
+compositor remain separate acceptance checks.
+
+## Configurable modes and upgrading
+
+For an existing installation, update the checkout and rerun the installer.
+Before this change merges, check out the PR's `codex/configurable-display-modes`
+branch; after merge, update `main` normally. Then run:
+
+```sh
+sudo bash scripts/install.sh --guest-only
+sudo idd apply
+```
+
+There is no need to repeat `idd configure` or rerun the diagnostic probe. The
+GPU address and connector in the original configuration are retained. The
+installer adds `/etc/idd/modes.json` only if missing and preserves your edits on
+subsequent installs. The original generated 1080p60 configuration automatically
+uses this file; a configuration explicitly created with the new `--edid` option
+continues to use that custom EDID. Old custom EDIDs differing from the original
+generated 128-byte EDID are also preserved.
+
+The default file is:
+
+```json
+{
+  "preferred": "1920x1080@60",
+  "modes": [
+    {"width": 1280, "height": 720, "refresh_rates": [60]},
+    {"width": 1920, "height": 1080, "refresh_rates": [60, 120, 144, 165, 240]},
+    {"width": 2560, "height": 1440, "refresh_rates": [60, 120, 144, 165]},
+    {"width": 3840, "height": 2160, "refresh_rates": [30, 60, 120]}
+  ]
+}
+```
+
+Change the widths, heights, rates, or preferred mode as needed, then run
+`sudo idd apply`. This reads the file again, validates it **before** taking down
+the old display, and briefly hotplugs the updated monitor. If NVIDIA rejects
+registration, it attempts to restore the previous running display and reports
+the failure. The file itself is not reverted, so correct the rejected edit
+before the next guest boot. A successful apply does not restart the compositor
+or change whether the systemd service is enabled.
+
+Choose the desired resolution and rate in KDE/GNOME display settings or your
+Hyprland monitor rule. `preferred` is an EDID preference for initial desktop
+selection, not a command that replaces the compositor's remembered setting.
+
+```sh
+sudo idd modes                       # preview the configured mode list
+sudo idd apply                       # apply after editing the file
+# Example Hyprland selection, once this rate is available:
+hyprctl keyword monitor 'DP-1,2560x1440@144,0x0,1'
+```
+
+To use a profile elsewhere on disk, configure with
+`--modes /absolute/path/to/modes.json` while the Idd display is stopped. To switch
+from a custom EDID to generated modes, stop the service, reconfigure with
+`--modes /etc/idd/modes.json`, and start the service again.
+
+The generator accepts at most 24 distinct resolution/rate combinations, integer
+dimensions (width 320–8192, height 200–8192), and finite refresh rates from 24 to
+480 Hz, including fractional values such as 59.94. The preferred string must
+exactly match a listed combination (`1920x1080@60`, not `1920x1080@60.0`). Invalid,
+duplicate, out-of-range, or unknown fields produce an error. Not every possible
+combination inside these input bounds fits EDID's range fields; such profiles
+are rejected explicitly.
+
+Timings use progressive CVT reduced blanking with EDID 10 kHz clock precision;
+the proven initial 1080p60 timing is retained exactly. RBv1 is used for a
+preferred mode when RBv2's porch values do not fit a legacy descriptor. The
+preferred mode must fit a legacy EDID timing (up to 655.35 MHz pixel clock and
+4095 active pixels per dimension); keep 1080p60/1440p144/4K60 preferred if a
+larger preferred timing is rejected. Higher timings can still be listed and
+selected manually. Legacy timing records go in CTA extensions; timings exceeding
+their clock or porch fields use DisplayID 1.3 Type I records. Every EDID block
+and DisplayID section has its own checksum. The implementation follows the
+[CVT calculation reference](https://github.com/gjasny/v4l-utils/blob/master/utils/edid-decode/calc-gtf-cvt.cpp)
+and [Linux DisplayID timing layout](https://github.com/torvalds/linux/blob/master/drivers/gpu/drm/drm_edid.c).
+
+`idd modes` reports requested modes and their encoded rates; small differences
+such as 143.998 Hz are clock quantization. These are not proof of driver
+acceptance. Sysfs's `modes` file reports only resolution names and omits refresh
+rates; inspect the compositor's mode list for rates NVIDIA actually exposes.
+High pixel clocks also require sufficient NVIDIA display-engine/link bandwidth.
+On HDMI, driver TMDS/HDMI capability validation may filter high-clock modes.
+The project does not override those hardware/driver limits.
+
+When CTA timing extensions are needed, a 640×480/60 Hz compatibility mode is
+also advertised as required by CTA. DisplayID repeats the same preferred timing
+as the base EDID and includes monitor identity, native dimensions, and section
+counts; identical preferred timings are deduplicated by the display stack.
+
+You can validate or export a profile without a GPU:
+
+```sh
+python3 src/idd.py modes --file config/modes.json
+python3 src/idd.py edid /tmp/idd-modes.edid --modes config/modes.json
+edid-decode --check /tmp/idd-modes.edid
+```
 
 ## Guest/host boundary
 
@@ -159,6 +260,7 @@ The installer copies these files and reloads systemd/udev configuration:
 | `/usr/local/bin/idd` | Python executable, standard library only |
 | `/etc/systemd/system/idd-display.service` | Enable before the display manager |
 | `/etc/udev/rules.d/71-idd-hotplug.rules` | Translate Idd events into DRM hotplug |
+| `/etc/idd/modes.json` | Editable resolution/refresh list, preserved on reinstall |
 
 The installer does not enable the service or change a connector. Your report has
 three disconnected DP ports and occupied HDMI. Start on an unused port:
@@ -169,7 +271,8 @@ sudo systemctl enable --now idd-display.service
 sudo idd verify
 ```
 
-Configuration, including the validated EDID, is stored in `/etc/idd/config.json`.
+GPU/connector configuration is stored in `/etc/idd/config.json`, which references
+`/etc/idd/modes.json` for generated modes (or embeds an explicit custom EDID).
 Idd locates the GPU by PCI identity on each boot. It reads the DRM device minor
 to find debugfs and supports the newer PCI-named layout too. It does not assume
 `card0` or `card1`.
@@ -341,7 +444,7 @@ After disabling, optionally uninstall:
 
 ```sh
 sudo rm -f /usr/local/bin/idd /etc/systemd/system/idd-display.service
-sudo rm -f /etc/udev/rules.d/71-idd-hotplug.rules /etc/idd/config.json
+sudo rm -f /etc/udev/rules.d/71-idd-hotplug.rules /etc/idd/config.json /etc/idd/modes.json
 sudo systemctl daemon-reload
 sudo udevadm control --reload-rules
 ```
@@ -351,7 +454,8 @@ sudo udevadm control --reload-rules
 | Check | Evidence | Status |
 | --- | --- | --- |
 | Control logic and EDID | Unit tests, independent EDID decode | Automated in CI |
-| Arch/CachyOS and Debian | Kernel/driver versions, unplugged output and frames | Pending hardware run |
+| CachyOS original mode | RTX 3080 Ti/615.78.08, forced DP-1 active at 1080p60 | Confirmed by user and two probe reports |
+| Additional modes and Debian | Driver/compositor mode list and actual frames | Pending hardware run |
 | KDE, GNOME, Hyprland | Display settings, NVIDIA renderer, moving frames | Pending each compositor |
 | No cable after guest reboot | Login screen, session and capture | Pending hardware run |
 | Teardown/restart | Three service cycles and VM shutdown | Pending hardware run |
