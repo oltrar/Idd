@@ -22,7 +22,7 @@ load_config() {
         fail "IDD_MODE is outside safe defaults (640x480..7680x4320, 24..240 Hz)"
 }
 
-case "${1:-}" in
+case "\${1:-}" in
     start)
         need systemctl
         systemctl start "$SERVICE"
@@ -51,233 +51,11 @@ case "${1:-}" in
     wait-ready)
         load_config
         [[ -x "$KMSCTL" ]] || fail "$KMSCTL not installed"
+        state=''
         for _ in $(seq 1 80); do
             state=$("$KMSCTL" status 2>/dev/null || true)
-            if grep -q '^enabled=true
-        printf '%s\n' '=== Guest NVIDIA ==='
-        if command -v nvidia-smi >/dev/null 2>&1; then
-            nvidia-smi --query-gpu=name,driver_version,pci.bus_id --format=csv,noheader || true
-            printf '\nNVIDIA utilization/processes (check the compositor while a session is drawing):\n'
-            nvidia-smi || true
-        else
-            printf '%s\n' 'nvidia-smi not found'
-        fi
-        printf '\nnvidia_drm modeset: '
-        if [[ -r /sys/module/nvidia_drm/parameters/modeset ]]; then
-            cat /sys/module/nvidia_drm/parameters/modeset
-        else
-            printf '%s\n' 'not loaded'
-        fi
-        printf '\n=== DRM devices ===\n'
-        shopt -s nullglob
-        for card in /sys/class/drm/card[0-9]*; do
-            name=${card##*/}
-            [[ "$name" =~ ^card[0-9]+$ ]] || continue
-            driver=$(readlink -f "$card/device/driver" 2>/dev/null || true)
-            driver=${driver##*/}
-            device=$(readlink -f "$card/device" 2>/dev/null || true)
-            printf '%-8s driver=%-12s device=%s\n' "$name" "${driver:-unknown}" "${device:-unknown}"
-            for status in "$card"-*/status; do
-                [[ -r "$status" ]] || continue
-                connector=${status%/status}; connector=${connector##*/}
-                printf '  %-22s %s\n' "$connector" "$(cat "$status")"
-            done
-        done
-        printf '\n=== Idd compositor GPU selection ===\n'
-        for alias in /dev/dri/idd-nvidia-card /dev/dri/idd-nvidia-render /dev/dri/idd-virtual-card; do
-            if [[ -e "$alias" ]]; then
-                ls -l "$alias"
-            else
-                printf '%s: not present\n' "$alias"
-            fi
-        done
-        if [[ -r /etc/environment.d/90-idd-virtual-display.conf ]]; then
-            cat /etc/environment.d/90-idd-virtual-display.conf
-        fi
-        if [[ -n "${KWIN_DRM_DEVICES:-}" || -n "${KWIN_RENDER_NODES:-}" ||
-              -n "${AQ_DRM_DEVICES:-}" ]]; then
-            printf '\nCurrent session GPU environment:\n'
-            env | grep -E '^(KWIN_DRM_DEVICES|KWIN_RENDER_NODES|AQ_DRM_DEVICES|AQ_NO_KMS_REQUIREMENT)=' || true
-        else
-            printf '\nGPU environment is not present in this shell. Log out/in after installation; verify the session manager imported /etc/environment.d.\n'
-        fi
-        printf '\n=== Hermes-KMS driver ===\n'
-        if command -v modinfo >/dev/null 2>&1; then modinfo -F version hermes_kms 2>/dev/null || printf '%s\n' 'not installed'; fi
-        if [[ -x "$KMSCTL" ]]; then "$KMSCTL" version || true; "$KMSCTL" identity || true; fi
-        ;;
-    activate-kde)
-        load_config
-        need kscreen-doctor
-        outputs=$(kscreen-doctor -o)
-        output_id=$(awk '$1 == "Output:" && $3 == "HERMES-1" { print $2; exit }' <<<"$outputs")
-        [[ -n "$output_id" ]] || fail 'HERMES-1 is not visible to KScreen yet. Check: iddctl status'
-        kscreen-doctor "output.${output_id}.enable" "output.${output_id}.mode.$IDD_MODE"
-        ;;
-    activate-gnome)
-        need gnome-control-center
-        exec gnome-control-center display
-        ;;
-    activate-wlr)
-        load_config
-        need wlr-randr
-        outputs=$(wlr-randr)
-        grep -Fq 'HERMES-1' <<<"$outputs" || fail 'HERMES-1 is not visible to the wlr-output-management protocol yet'
-        exec wlr-randr --output HERMES-1 --on --custom-mode "${IDD_MODE}Hz"
-        ;;
-    hyprland-start)
-        load_config
-        [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]] || fail 'run this inside the target Hyprland session (HYPRLAND_INSTANCE_SIGNATURE is unset)'
-        need hyprctl
-        need wlr-randr
-        if ! hyprctl monitors all 2>/dev/null | grep -Fq "Monitor $HEADLESS_NAME ("; then
-            hyprctl output create headless "$HEADLESS_NAME"
-        fi
-        for _ in $(seq 1 30); do
-            if wlr-randr 2>/dev/null | grep -Fq "$HEADLESS_NAME"; then break; fi
-            sleep 0.2
-        done
-        wlr-randr --output "$HEADLESS_NAME" --on --custom-mode "${IDD_MODE}Hz" --pos 0,0 --scale 1
-        printf 'Created %s in Hyprland at %s. This is a compositor headless output, not a DRM connector.\n' "$HEADLESS_NAME" "$IDD_MODE"
-        ;;
-    hyprland-stop)
-        [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]] || fail 'run this inside the target Hyprland session (HYPRLAND_INSTANCE_SIGNATURE is unset)'
-        need hyprctl
-        hyprctl output remove "$HEADLESS_NAME"
-        ;;
-    _hold)
-        load_config
-        [[ -x "$KMSCTL" ]] || fail "$KMSCTL not installed"
-        exec "$KMSCTL" hold "$IDD_MODE"
-        ;;
-    *)
-        cat >&2 <<'USAGE'
-Usage: iddctl COMMAND
-  enable          enable the guest-local Hermes-KMS display service at boot
-  start|stop|restart|disable|status
-  wait-ready      wait until the guest DRM connector is connected (systemd)
-  verify          inspect NVIDIA, DRM cards and the guest virtual display
-  activate-kde    enable HERMES-1 in the current KDE Wayland session
-  activate-gnome  open GNOME Display Settings to enable HERMES-1
-  activate-wlr    enable HERMES-1 through wlr-output-management
-  hyprland-start  create a Hyprland headless output (not a DRM connector)
-  hyprland-stop   remove the Hyprland headless output
-USAGE
-        exit 2
-        ;;
-esac
- <<<"$state" &&
-               grep -q '^connected=true
-        printf '%s\n' '=== Guest NVIDIA ==='
-        if command -v nvidia-smi >/dev/null 2>&1; then
-            nvidia-smi --query-gpu=name,driver_version,pci.bus_id --format=csv,noheader || true
-            printf '\nNVIDIA utilization/processes (check the compositor while a session is drawing):\n'
-            nvidia-smi || true
-        else
-            printf '%s\n' 'nvidia-smi not found'
-        fi
-        printf '\nnvidia_drm modeset: '
-        if [[ -r /sys/module/nvidia_drm/parameters/modeset ]]; then
-            cat /sys/module/nvidia_drm/parameters/modeset
-        else
-            printf '%s\n' 'not loaded'
-        fi
-        printf '\n=== DRM devices ===\n'
-        shopt -s nullglob
-        for card in /sys/class/drm/card[0-9]*; do
-            name=${card##*/}
-            [[ "$name" =~ ^card[0-9]+$ ]] || continue
-            driver=$(readlink -f "$card/device/driver" 2>/dev/null || true)
-            driver=${driver##*/}
-            device=$(readlink -f "$card/device" 2>/dev/null || true)
-            printf '%-8s driver=%-12s device=%s\n' "$name" "${driver:-unknown}" "${device:-unknown}"
-            for status in "$card"-*/status; do
-                [[ -r "$status" ]] || continue
-                connector=${status%/status}; connector=${connector##*/}
-                printf '  %-22s %s\n' "$connector" "$(cat "$status")"
-            done
-        done
-        printf '\n=== Idd compositor GPU selection ===\n'
-        for alias in /dev/dri/idd-nvidia-card /dev/dri/idd-nvidia-render /dev/dri/idd-virtual-card; do
-            if [[ -e "$alias" ]]; then
-                ls -l "$alias"
-            else
-                printf '%s: not present\n' "$alias"
-            fi
-        done
-        if [[ -r /etc/environment.d/90-idd-virtual-display.conf ]]; then
-            cat /etc/environment.d/90-idd-virtual-display.conf
-        fi
-        if [[ -n "${KWIN_DRM_DEVICES:-}" || -n "${KWIN_RENDER_NODES:-}" ||
-              -n "${AQ_DRM_DEVICES:-}" ]]; then
-            printf '\nCurrent session GPU environment:\n'
-            env | grep -E '^(KWIN_DRM_DEVICES|KWIN_RENDER_NODES|AQ_DRM_DEVICES|AQ_NO_KMS_REQUIREMENT)=' || true
-        else
-            printf '\nGPU environment is not present in this shell. Log out/in after installation; verify the session manager imported /etc/environment.d.\n'
-        fi
-        printf '\n=== Hermes-KMS driver ===\n'
-        if command -v modinfo >/dev/null 2>&1; then modinfo -F version hermes_kms 2>/dev/null || printf '%s\n' 'not installed'; fi
-        if [[ -x "$KMSCTL" ]]; then "$KMSCTL" version || true; "$KMSCTL" identity || true; fi
-        ;;
-    activate-kde)
-        load_config
-        need kscreen-doctor
-        outputs=$(kscreen-doctor -o)
-        output_id=$(awk '$1 == "Output:" && $3 == "HERMES-1" { print $2; exit }' <<<"$outputs")
-        [[ -n "$output_id" ]] || fail 'HERMES-1 is not visible to KScreen yet. Check: iddctl status'
-        kscreen-doctor "output.${output_id}.enable" "output.${output_id}.mode.$IDD_MODE"
-        ;;
-    activate-gnome)
-        need gnome-control-center
-        exec gnome-control-center display
-        ;;
-    activate-wlr)
-        load_config
-        need wlr-randr
-        outputs=$(wlr-randr)
-        grep -Fq 'HERMES-1' <<<"$outputs" || fail 'HERMES-1 is not visible to the wlr-output-management protocol yet'
-        exec wlr-randr --output HERMES-1 --on --custom-mode "${IDD_MODE}Hz"
-        ;;
-    hyprland-start)
-        load_config
-        [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]] || fail 'run this inside the target Hyprland session (HYPRLAND_INSTANCE_SIGNATURE is unset)'
-        need hyprctl
-        need wlr-randr
-        if ! hyprctl monitors all 2>/dev/null | grep -Fq "Monitor $HEADLESS_NAME ("; then
-            hyprctl output create headless "$HEADLESS_NAME"
-        fi
-        for _ in $(seq 1 30); do
-            if wlr-randr 2>/dev/null | grep -Fq "$HEADLESS_NAME"; then break; fi
-            sleep 0.2
-        done
-        wlr-randr --output "$HEADLESS_NAME" --on --custom-mode "${IDD_MODE}Hz" --pos 0,0 --scale 1
-        printf 'Created %s in Hyprland at %s. This is a compositor headless output, not a DRM connector.\n' "$HEADLESS_NAME" "$IDD_MODE"
-        ;;
-    hyprland-stop)
-        [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]] || fail 'run this inside the target Hyprland session (HYPRLAND_INSTANCE_SIGNATURE is unset)'
-        need hyprctl
-        hyprctl output remove "$HEADLESS_NAME"
-        ;;
-    _hold)
-        load_config
-        [[ -x "$KMSCTL" ]] || fail "$KMSCTL not installed"
-        exec "$KMSCTL" hold "$IDD_MODE"
-        ;;
-    *)
-        cat >&2 <<'USAGE'
-Usage: iddctl COMMAND
-  enable          enable the guest-local Hermes-KMS display service at boot
-  start|stop|restart|disable|status
-  verify          inspect NVIDIA, DRM cards and the guest virtual display
-  activate-kde    enable HERMES-1 in the current KDE Wayland session
-  activate-gnome  open GNOME Display Settings to enable HERMES-1
-  activate-wlr    enable HERMES-1 through wlr-output-management
-  hyprland-start  create a Hyprland headless output (not a DRM connector)
-  hyprland-stop   remove the Hyprland headless output
-USAGE
-        exit 2
-        ;;
-esac
- <<<"$state"; then
+            if grep -q '^enabled=true$' <<<"$state" &&
+               grep -q '^connected=true$' <<<"$state"; then
                 printf '%s\n' 'Hermes-KMS virtual connector is enabled and connected.'
                 exit 0
             fi
@@ -305,15 +83,15 @@ esac
         printf '\n=== DRM devices ===\n'
         shopt -s nullglob
         for card in /sys/class/drm/card[0-9]*; do
-            name=${card##*/}
+            name=\${card##*/}
             [[ "$name" =~ ^card[0-9]+$ ]] || continue
             driver=$(readlink -f "$card/device/driver" 2>/dev/null || true)
-            driver=${driver##*/}
+            driver=\${driver##*/}
             device=$(readlink -f "$card/device" 2>/dev/null || true)
-            printf '%-8s driver=%-12s device=%s\n' "$name" "${driver:-unknown}" "${device:-unknown}"
+            printf '%-8s driver=%-12s device=%s\n' "$name" "\${driver:-unknown}" "\${device:-unknown}"
             for status in "$card"-*/status; do
                 [[ -r "$status" ]] || continue
-                connector=${status%/status}; connector=${connector##*/}
+                connector=\${status%/status}; connector=\${connector##*/}
                 printf '  %-22s %s\n' "$connector" "$(cat "$status")"
             done
         done
@@ -328,8 +106,8 @@ esac
         if [[ -r /etc/environment.d/90-idd-virtual-display.conf ]]; then
             cat /etc/environment.d/90-idd-virtual-display.conf
         fi
-        if [[ -n "${KWIN_DRM_DEVICES:-}" || -n "${KWIN_RENDER_NODES:-}" ||
-              -n "${AQ_DRM_DEVICES:-}" ]]; then
+        if [[ -n "\${KWIN_DRM_DEVICES:-}" || -n "\${KWIN_RENDER_NODES:-}" ||
+              -n "\${AQ_DRM_DEVICES:-}" ]]; then
             printf '\nCurrent session GPU environment:\n'
             env | grep -E '^(KWIN_DRM_DEVICES|KWIN_RENDER_NODES|AQ_DRM_DEVICES|AQ_NO_KMS_REQUIREMENT)=' || true
         else
@@ -345,7 +123,7 @@ esac
         outputs=$(kscreen-doctor -o)
         output_id=$(awk '$1 == "Output:" && $3 == "HERMES-1" { print $2; exit }' <<<"$outputs")
         [[ -n "$output_id" ]] || fail 'HERMES-1 is not visible to KScreen yet. Check: iddctl status'
-        kscreen-doctor "output.${output_id}.enable" "output.${output_id}.mode.$IDD_MODE"
+        kscreen-doctor "output.\${output_id}.enable" "output.\${output_id}.mode.$IDD_MODE"
         ;;
     activate-gnome)
         need gnome-control-center
@@ -356,11 +134,11 @@ esac
         need wlr-randr
         outputs=$(wlr-randr)
         grep -Fq 'HERMES-1' <<<"$outputs" || fail 'HERMES-1 is not visible to the wlr-output-management protocol yet'
-        exec wlr-randr --output HERMES-1 --on --custom-mode "${IDD_MODE}Hz"
+        exec wlr-randr --output HERMES-1 --on --custom-mode "\${IDD_MODE}Hz"
         ;;
     hyprland-start)
         load_config
-        [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]] || fail 'run this inside the target Hyprland session (HYPRLAND_INSTANCE_SIGNATURE is unset)'
+        [[ -n "\${HYPRLAND_INSTANCE_SIGNATURE:-}" ]] || fail 'run this inside the target Hyprland session (HYPRLAND_INSTANCE_SIGNATURE is unset)'
         need hyprctl
         need wlr-randr
         if ! hyprctl monitors all 2>/dev/null | grep -Fq "Monitor $HEADLESS_NAME ("; then
@@ -370,11 +148,11 @@ esac
             if wlr-randr 2>/dev/null | grep -Fq "$HEADLESS_NAME"; then break; fi
             sleep 0.2
         done
-        wlr-randr --output "$HEADLESS_NAME" --on --custom-mode "${IDD_MODE}Hz" --pos 0,0 --scale 1
+        wlr-randr --output "$HEADLESS_NAME" --on --custom-mode "\${IDD_MODE}Hz" --pos 0,0 --scale 1
         printf 'Created %s in Hyprland at %s. This is a compositor headless output, not a DRM connector.\n' "$HEADLESS_NAME" "$IDD_MODE"
         ;;
     hyprland-stop)
-        [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]] || fail 'run this inside the target Hyprland session (HYPRLAND_INSTANCE_SIGNATURE is unset)'
+        [[ -n "\${HYPRLAND_INSTANCE_SIGNATURE:-}" ]] || fail 'run this inside the target Hyprland session (HYPRLAND_INSTANCE_SIGNATURE is unset)'
         need hyprctl
         hyprctl output remove "$HEADLESS_NAME"
         ;;
@@ -388,6 +166,7 @@ esac
 Usage: iddctl COMMAND
   enable          enable the guest-local Hermes-KMS display service at boot
   start|stop|restart|disable|status
+  wait-ready      wait until the guest DRM connector is connected (systemd)
   verify          inspect NVIDIA, DRM cards and the guest virtual display
   activate-kde    enable HERMES-1 in the current KDE Wayland session
   activate-gnome  open GNOME Display Settings to enable HERMES-1
