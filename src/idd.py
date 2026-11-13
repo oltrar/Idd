@@ -693,8 +693,18 @@ def run_probe(k, args):
 
 
 def main(argv=None):
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] == "hyprland":
+        # Keep the standalone GPU/EDID/probe commands dependency-free.
+        candidates = [Path(__file__).with_name("idd_hyprland.py"), Path(__file__).with_name("idd-hyprland")]
+        helper = next((path for path in candidates if path.is_file()), None)
+        if helper is None:
+            print("idd: reinstall from the current checkout to add the Hyprland helper.", file=sys.stderr)
+            return 1
+        return subprocess.run([sys.executable, str(helper), *argv[1:]]).returncode
     p = argparse.ArgumentParser(description=__doc__)
     sub = p.add_subparsers(dest="command", required=True)
+    sub.add_parser("hyprland", help="Set up/apply/status/remove native Hyprland monitor settings (no sudo)")
     sub.add_parser("list", help="Read-only NVIDIA cards/connectors")
     e = sub.add_parser("edid", help="Write a legacy or configurable multi-mode EDID")
     e.add_argument("output", type=Path)

@@ -12,13 +12,16 @@ jobs:
       - name: Syntax and staged installation
         run: |
           bash -n scripts/*.sh
-          python3 -m py_compile src/idd.py
+          python3 -m py_compile src/idd.py src/idd_hyprland.py
+          python3 src/idd.py hyprland setup --help
           cp src/idd.py /tmp/idd-check.py
           python3 /tmp/idd-check.py probe --help
           stage=$(mktemp -d)
           bash scripts/install.sh --guest-only --destdir "$stage"
           cmp src/idd.py "$stage/usr/local/bin/idd"
+          cmp src/idd_hyprland.py "$stage/usr/local/bin/idd-hyprland"
           test -x "$stage/usr/local/bin/idd"
+          python3 "$stage/usr/local/bin/idd" hyprland setup --help
           test -f "$stage/etc/udev/rules.d/71-idd-hotplug.rules"
           cmp config/modes.json "$stage/etc/idd/modes.json"
           echo '{"keep":"my edited configuration"}' > "$stage/etc/idd/modes.json"
@@ -29,7 +32,7 @@ jobs:
       - name: Independently decode generated EDID
         run: |
           sudo apt-get update
-          sudo apt-get install -y edid-decode
+          sudo apt-get install -y edid-decode lua5.4
           python3 src/idd.py edid /tmp/idd.edid
           edid-decode --check /tmp/idd.edid
           python3 src/idd.py edid /tmp/idd-modes.edid --modes config/modes.json
@@ -54,3 +57,14 @@ jobs:
             python3 src/idd.py edid "/tmp/idd-$sample.edid" --modes "/tmp/idd-$sample.json"
             edid-decode --check "/tmp/idd-$sample.edid"
           done
+          python3 - <<'PY'
+          import sys
+          from pathlib import Path
+          sys.path.insert(0, 'src')
+          import idd_hyprland as h
+          settings = {'connector': 'DP-1', 'mode': '2560x1440@144', 'position': 'auto', 'scale': 1, 'format': 'lua'}
+          Path('/tmp/idd-monitor.lua').write_text(h.include_content(settings))
+          Path('/tmp/idd-main.lua').write_text(h.managed_config('-- user config\n', 'lua', Path('/tmp/idd-monitor.lua')))
+          PY
+          luac5.4 -p /tmp/idd-monitor.lua
+          luac5.4 -p /tmp/idd-main.lua

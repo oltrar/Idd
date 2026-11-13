@@ -41,6 +41,29 @@ your compositor. The installer preserves edited profiles. Existing original
 1080p-only configurations adopt the mode file automatically after upgrading;
 explicit custom EDIDs are preserved. See [upgrade and config examples](docs/linux-guest-display.md#configurable-modes-and-upgrading).
 
+## Hyprland
+
+The same NVIDIA DRM display works with Hyprland. After updating/installing Idd,
+run this **as your desktop user in a Hyprland terminal**, without sudo:
+
+```sh
+idd hyprland setup --mode 2560x1440@144
+idd hyprland status
+```
+
+This detects `Idd NVIDIA`, checks the rate against Hyprland's actual advertised
+modes, enables it, and adds a managed monitor include to your existing config.
+It supports both Hyprlang (`hyprland.conf`) and Lua (`hyprland.lua`), preserves
+other monitor rules, and backs up the main file before changing it. Monitor
+settings persist across login, config reload, and Idd hotplug.
+
+Edit `~/.config/idd/hyprland.json` for the selected mode, position and scale,
+then run `idd hyprland apply`. The guest's `/etc/idd/modes.json` still controls
+the available EDID modes; use `sudo idd apply` after changing that file.
+
+See the [Hyprland guide](docs/hyprland.md) for setup, Lua/custom config paths,
+NVIDIA GPU selection, recovery and removal.
+
 ## One-run check without installing
 
 When the guest is available, run this from the checkout:
