@@ -30,6 +30,19 @@ The guest BDF in the diagnostic output (`0000:03:00.0`) is a guest PCI address; 
 
 The project pins upstream Hermes-KMS `v0.4.1` rather than copying a second DRM driver implementation into this repository. Hermes-KMS is an out-of-tree GPL-2.0 DRM/KMS driver with a synthetic EDID, a DRM connector and mode setting. The virtual card is not itself a render GPU. This repository supplies the guest-only installer, lifetime service, stable guest udev aliases, and compositor GPU-selection configuration: NVIDIA is primary for KWin/Mutter; Hermes-KMS is the secondary output-only card.
 
+### Render and virtual-scanout pipeline
+
+The design deliberately separates the **render GPU** from the **display endpoint**:
+
+1. KWin/Mutter choose the passed-through RTX 3080 Ti as their primary rendering GPU.
+2. The compositor renders the desktop on NVIDIA using its EGL/GBM path.
+3. For the virtual monitor, the compositor imports the NVIDIA-rendered DMA-BUF into the Hermes-KMS DRM device and commits it to the virtual connector's KMS plane. Hermes-KMS implements the GEM/PRIME import path for this use case; it does not perform 3D rendering.
+4. The virtual connector is enumerated by the guest as an ordinary DRM monitor with an EDID and mode list. No NVIDIA physical DP/HDMI connector is force-enabled.
+
+This is the closest practical Linux architecture to an indirect display endpoint: NVIDIA does the rendering; the guest-local virtual DRM device provides the monitor endpoint. It is **not** a connector owned by the NVIDIA DRM card itself. The upstream driver source documents importing a real GPU's compositor buffer into Hermes-KMS for scanout in [hermes_kms.c](https://github.com/MrOz59/Hermes-KMS/blob/143209286852430f5990a1fc8a95454b16bdea4c/kernel/hermes-kms/hermes_kms.c).
+
+The separate capture/streaming consumer then reads frames from Hermes-KMS. NVIDIA DMA-BUF import in the capture consumer has known correctness limitations on tested configurations, so that part may fall back to CPU copying. This capture fallback does **not** mean the desktop compositor is software-rendering; renderer selection must be verified in the running compositor and with `nvidia-smi`.
+
 - **KDE Plasma / KWin Wayland:** the installer writes `KWIN_DRM_DEVICES=/dev/dri/idd-nvidia-card:/dev/dri/idd-virtual-card`, so the RTX 3080 Ti is first (render GPU) and Hermes-KMS is second (virtual output). KWin reads this when the session starts; log out/in after installation. The output is activated by KScreen; run `iddctl activate-kde` or enable it in System Settings → Display Configuration.
 - **GNOME Wayland:** the installer tags the RTX 3080 Ti PCI device with Mutter's documented `mutter-device-preferred-primary` udev tag, making it the primary renderer when it supports EGL. The Hermes-KMS card remains the virtual output. Log out/in after installation, then use Settings → Displays; `iddctl activate-gnome` opens that panel.
 - **Hyprland:** Hermes-KMS/EVDI are not currently a working KMS-output path for Aquamarine. The default installer also writes `AQ_NO_KMS_REQUIREMENT=1` and `AQ_DRM_DEVICES=/dev/dri/idd-nvidia-card`; `iddctl hyprland-start` then creates a Hyprland-native `headless` output and sets its mode through `wlr-randr`. It is intended to render through the passed-through RTX 3080 Ti. This is a compositor virtual output, not a `/sys/class/drm` connector. Remove it with `iddctl hyprland-stop`. You can therefore use one default installation for KDE, GNOME and Hyprland without reinstalling when changing desktop sessions. Hyprland documents `hyprctl output create headless` and `output remove`; the output-management protocol applies its mode.
