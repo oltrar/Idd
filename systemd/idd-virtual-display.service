@@ -4,10 +4,12 @@ Documentation=https://github.com/oltrar/Idd
 After=systemd-modules-load.service
 Before=display-manager.service
 ConditionPathExists=/etc/idd/virtual-display.conf
+TimeoutStartSec=25
 
 [Service]
 Type=simple
 ExecStart=/usr/local/bin/iddctl _hold
+ExecStartPost=/usr/local/bin/iddctl wait-ready
 Restart=on-failure
 RestartSec=2
 KillSignal=SIGTERM
