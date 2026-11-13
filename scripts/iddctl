@@ -22,7 +22,7 @@ load_config() {
         fail "IDD_MODE is outside safe defaults (640x480..7680x4320, 24..240 Hz)"
 }
 
-case "\${1:-}" in
+case "${1:-}" in
     start)
         need systemctl
         systemctl start "$SERVICE"
@@ -83,15 +83,15 @@ case "\${1:-}" in
         printf '\n=== DRM devices ===\n'
         shopt -s nullglob
         for card in /sys/class/drm/card[0-9]*; do
-            name=\${card##*/}
+            name=${card##*/}
             [[ "$name" =~ ^card[0-9]+$ ]] || continue
             driver=$(readlink -f "$card/device/driver" 2>/dev/null || true)
-            driver=\${driver##*/}
+            driver=${driver##*/}
             device=$(readlink -f "$card/device" 2>/dev/null || true)
-            printf '%-8s driver=%-12s device=%s\n' "$name" "\${driver:-unknown}" "\${device:-unknown}"
+            printf '%-8s driver=%-12s device=%s\n' "$name" "${driver:-unknown}" "${device:-unknown}"
             for status in "$card"-*/status; do
                 [[ -r "$status" ]] || continue
-                connector=\${status%/status}; connector=\${connector##*/}
+                connector=${status%/status}; connector=${connector##*/}
                 printf '  %-22s %s\n' "$connector" "$(cat "$status")"
             done
         done
@@ -106,8 +106,8 @@ case "\${1:-}" in
         if [[ -r /etc/environment.d/90-idd-virtual-display.conf ]]; then
             cat /etc/environment.d/90-idd-virtual-display.conf
         fi
-        if [[ -n "\${KWIN_DRM_DEVICES:-}" || -n "\${KWIN_RENDER_NODES:-}" ||
-              -n "\${AQ_DRM_DEVICES:-}" ]]; then
+        if [[ -n "${KWIN_DRM_DEVICES:-}" || -n "${KWIN_RENDER_NODES:-}" ||
+              -n "${AQ_DRM_DEVICES:-}" ]]; then
             printf '\nCurrent session GPU environment:\n'
             env | grep -E '^(KWIN_DRM_DEVICES|KWIN_RENDER_NODES|AQ_DRM_DEVICES|AQ_NO_KMS_REQUIREMENT)=' || true
         else
@@ -123,7 +123,7 @@ case "\${1:-}" in
         outputs=$(kscreen-doctor -o)
         output_id=$(awk '$1 == "Output:" && $3 == "HERMES-1" { print $2; exit }' <<<"$outputs")
         [[ -n "$output_id" ]] || fail 'HERMES-1 is not visible to KScreen yet. Check: iddctl status'
-        kscreen-doctor "output.\${output_id}.enable" "output.\${output_id}.mode.$IDD_MODE"
+        kscreen-doctor "output.${output_id}.enable" "output.${output_id}.mode.$IDD_MODE"
         ;;
     activate-gnome)
         need gnome-control-center
@@ -134,11 +134,11 @@ case "\${1:-}" in
         need wlr-randr
         outputs=$(wlr-randr)
         grep -Fq 'HERMES-1' <<<"$outputs" || fail 'HERMES-1 is not visible to the wlr-output-management protocol yet'
-        exec wlr-randr --output HERMES-1 --on --custom-mode "\${IDD_MODE}Hz"
+        exec wlr-randr --output HERMES-1 --on --custom-mode "${IDD_MODE}Hz"
         ;;
     hyprland-start)
         load_config
-        [[ -n "\${HYPRLAND_INSTANCE_SIGNATURE:-}" ]] || fail 'run this inside the target Hyprland session (HYPRLAND_INSTANCE_SIGNATURE is unset)'
+        [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]] || fail 'run this inside the target Hyprland session (HYPRLAND_INSTANCE_SIGNATURE is unset)'
         need hyprctl
         need wlr-randr
         if ! hyprctl monitors all 2>/dev/null | grep -Fq "Monitor $HEADLESS_NAME ("; then
@@ -148,11 +148,11 @@ case "\${1:-}" in
             if wlr-randr 2>/dev/null | grep -Fq "$HEADLESS_NAME"; then break; fi
             sleep 0.2
         done
-        wlr-randr --output "$HEADLESS_NAME" --on --custom-mode "\${IDD_MODE}Hz" --pos 0,0 --scale 1
+        wlr-randr --output "$HEADLESS_NAME" --on --custom-mode "${IDD_MODE}Hz" --pos 0,0 --scale 1
         printf 'Created %s in Hyprland at %s. This is a compositor headless output, not a DRM connector.\n' "$HEADLESS_NAME" "$IDD_MODE"
         ;;
     hyprland-stop)
-        [[ -n "\${HYPRLAND_INSTANCE_SIGNATURE:-}" ]] || fail 'run this inside the target Hyprland session (HYPRLAND_INSTANCE_SIGNATURE is unset)'
+        [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]] || fail 'run this inside the target Hyprland session (HYPRLAND_INSTANCE_SIGNATURE is unset)'
         need hyprctl
         hyprctl output remove "$HEADLESS_NAME"
         ;;
