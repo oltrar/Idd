@@ -33,5 +33,10 @@ if [[ -z "$destdir" ]]; then
   systemctl daemon-reload
   udevadm control --reload-rules
 fi
-echo 'Installed. Next: idd list, idd configure --guest-only --pci ... --connector ...'
-echo 'Then: systemctl enable --now idd-display.service'
+if [[ -f "$destdir/etc/idd/config.json" ]]; then
+  echo 'Updated. Your GPU/port selection and existing modes.json were preserved.'
+  echo 'Apply the mode profile now: sudo idd apply'
+else
+  echo 'Installed. Next: idd list, idd configure --guest-only --pci ... --connector ...'
+  echo 'Then: systemctl enable --now idd-display.service'
+fi

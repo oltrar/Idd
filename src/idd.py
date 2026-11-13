@@ -210,9 +210,12 @@ def modes_edid(profile):
     extensions = []
     for i in range(0, len(legacy), 6):
         block = bytearray(128)
-        block[:7] = bytes([0x02, 0x03, 7, 0x80, 0xe2, 0, 0x4a])  # VCDB: RGB range selectable, underscan
+        start = 7 if i == 0 else 4
+        block[:4] = bytes([0x02, 0x03, start, 0x80])
+        if i == 0:
+            block[4:7] = bytes([0xe2, 0, 0x4a])  # one global VCDB: RGB range selectable, underscan
         payload = b"".join(legacy[i:i + 6])
-        block[7:7 + len(payload)] = payload
+        block[start:start + len(payload)] = payload
         block[127] = (-sum(block)) & 255
         extensions.append(block)
     sections = []
