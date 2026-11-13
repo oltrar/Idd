@@ -71,6 +71,31 @@ for card_path in /sys/class/drm/card[0-9]*; do
   done
 done
 
+section "DRM RENDER NODES"
+render_nodes=(/sys/class/drm/renderD*)
+if (( ${#render_nodes[@]} == 0 )); then
+  echo "No DRM render nodes exposed."
+else
+  for render_path in "${render_nodes[@]}"; do
+    render=$(basename "$render_path")
+    device=$(readlink -f "$render_path/device" 2>/dev/null || echo unknown)
+    driver=$(readlink -f "$render_path/device/driver" 2>/dev/null || true)
+    driver=${driver##*/}
+    printf '%-12s device=%s driver=%s\n' "$render" "$device" "${driver:-unknown}"
+    if [[ -r "$render_path/device/vendor" && -r "$render_path/device/device" ]]; then
+      printf '  PCI vendor=%s device=%s\n' \
+        "$(cat "$render_path/device/vendor")" "$(cat "$render_path/device/device")"
+    fi
+  done
+fi
+
+section "DRM BY-PATH LINKS"
+if [[ -d /dev/dri/by-path ]]; then
+  find /dev/dri/by-path -maxdepth 1 -type l -printf '%f -> %l\n' | sort
+else
+  echo "/dev/dri/by-path is unavailable."
+fi
+
 section "BOOT PARAMETERS"
 cat /proc/cmdline
 
