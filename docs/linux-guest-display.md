@@ -320,7 +320,19 @@ the executable `qdbus` instead. If multiple guest GPUs are intentional,
 implements this selection. Use actual guest device paths, not a hardcoded card
 number carried across boots.
 
-**Hyprland:** Add a rule using your selected port:
+**Hyprland:** The [native integration](hyprland.md) enables the monitor and saves
+its selected resolution/rate, position and scale. In your Hyprland terminal,
+run as your desktop user, without sudo:
+
+```sh
+idd hyprland setup --mode 2560x1440@144
+idd hyprland status
+```
+
+It supports both Hyprlang and Lua configs. Edit
+`~/.config/idd/hyprland.json` and run `idd hyprland apply` for later changes.
+Keep using `sudo idd apply` for guest EDID profile changes. For manual Hyprlang
+configuration instead, a monitor rule using your selected port is:
 
 ```ini
 monitor = DP-1, 1920x1080@60, 0x0, 1
@@ -442,8 +454,11 @@ when started.
 
 After disabling, optionally uninstall:
 
+If you used the Hyprland integration, run `idd hyprland remove` as the desktop
+user first to remove its managed include.
+
 ```sh
-sudo rm -f /usr/local/bin/idd /etc/systemd/system/idd-display.service
+sudo rm -f /usr/local/bin/idd /usr/local/bin/idd-hyprland /etc/systemd/system/idd-display.service
 sudo rm -f /etc/udev/rules.d/71-idd-hotplug.rules /etc/idd/config.json /etc/idd/modes.json
 sudo systemctl daemon-reload
 sudo udevadm control --reload-rules
