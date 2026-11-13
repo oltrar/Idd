@@ -28,7 +28,7 @@ The guest BDF in the diagnostic output (`0000:03:00.0`) is a guest PCI address; 
 
 ## Backend and compositor support
 
-The project pins upstream Hermes-KMS `v0.4.1` rather than copying a second DRM driver implementation into this repository. Hermes-KMS is an out-of-tree GPL-2.0 DRM/KMS driver with a synthetic EDID, a DRM connector and mode setting. The virtual card is not itself a render GPU. This repository supplies the guest-only installer, lifetime service, stable guest udev aliases, and compositor GPU-selection configuration: NVIDIA is primary for KWin/Mutter; Hermes-KMS is the secondary output-only card.
+The project tracks upstream Hermes-KMS `v0.4.1` as the `vendor/Hermes-KMS` Git submodule at a fixed commit rather than duplicating its DRM driver implementation. The installer verifies the submodule commit, and falls back to fetching that exact commit for a plain clone. Hermes-KMS is an out-of-tree GPL-2.0 DRM/KMS driver with a synthetic EDID, a DRM connector and mode setting. The virtual card is not itself a render GPU. This repository supplies the guest-only installer, lifetime service, stable guest udev aliases, and compositor GPU-selection configuration: NVIDIA is primary for KWin/Mutter; Hermes-KMS is the secondary output-only card.
 
 ### Render and virtual-scanout pipeline
 
@@ -57,7 +57,7 @@ The separate capture/streaming consumer then reads frames from Hermes-KMS. NVIDI
 4. Clone the implementation branch in the guest and run:
 
    ```sh
-   git clone --branch linux-guest-virtual-display-prototype --single-branch https://github.com/oltrar/Idd.git
+   git clone --recurse-submodules --branch linux-guest-virtual-display-prototype --single-branch https://github.com/oltrar/Idd.git
    cd Idd
    sudo bash ./scripts/install-linux-guest.sh --guest
    ```
