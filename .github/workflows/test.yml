@@ -34,3 +34,23 @@ jobs:
           edid-decode --check /tmp/idd.edid
           python3 src/idd.py edid /tmp/idd-modes.edid --modes config/modes.json
           edid-decode --check /tmp/idd-modes.edid
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          default = json.loads(Path('config/modes.json').read_text())
+          samples = {
+              'preferred': dict(default, preferred='2560x1440@144'),
+              'fractional': {'preferred': '1920x1080@59.94', 'modes': [
+                  {'width': 1920, 'height': 1080, 'refresh_rates': [59.94]},
+                  {'width': 3440, 'height': 1440, 'refresh_rates': [100]}]},
+              'many': {'preferred': '1920x1080@60', 'modes': [
+                  {'width': 1920, 'height': 1080, 'refresh_rates': [60]},
+                  {'width': 3840, 'height': 2160, 'refresh_rates': list(range(83, 106))}]},
+          }
+          for name, profile in samples.items():
+              Path('/tmp/idd-' + name + '.json').write_text(json.dumps(profile))
+          PY
+          for sample in preferred fractional many; do
+            python3 src/idd.py edid "/tmp/idd-$sample.edid" --modes "/tmp/idd-$sample.json"
+            edid-decode --check "/tmp/idd-$sample.edid"
+          done

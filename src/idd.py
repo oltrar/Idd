@@ -128,13 +128,15 @@ def legacy_dtd(t):
     return bytes(d)
 
 
-def displayid_dtd(t):
+def displayid_dtd(t, preferred=False):
     # DisplayID 1.3 Type I: a 24-bit 10 kHz clock and 16-bit dimensions.
     # This avoids truncating 1440p165/4K120 into the 16-bit legacy clock field.
     data = bytearray((t["clock_khz"] // 10 - 1).to_bytes(3, "little"))
     data.append(0x04)  # 16:9 aspect (custom ratios below use undefined).
     if t["width"] * 9 != t["height"] * 16:
         data[3] = 0x08
+    if preferred:
+        data[3] |= 0x80
     for key in ("width", "hblank", "hfront", "hsync", "height", "vblank", "vfront", "vsync"):
         value = t[key] - 1
         if key == "hfront" and t["flags"] & 2:
@@ -185,30 +187,53 @@ def profile_timings(profile):
 def modes_edid(profile):
     timings = profile_timings(profile)
     e = bytearray(make_edid())
+    e[12:16] = b"\0" * 4  # the string serial descriptor is authoritative
     e[54:72] = legacy_dtd(timings[0])
-    ranges = [math.floor(min(t["actual_hz"] for t in timings)), math.ceil(max(t["actual_hz"] for t in timings)),
-              math.floor(min(t["clock_khz"] / (t["width"] + t["hblank"]) for t in timings)),
-              math.ceil(max(t["clock_khz"] / (t["width"] + t["hblank"]) for t in timings))]
-    max_clock = math.ceil(max(t["clock_khz"] for t in timings) / 10000)
-    if max(ranges) > 510 or max_clock > 255:
-        raise IddError("Requested modes exceed EDID range limits (510 Hz/kHz or 2550 MHz pixel clock).")
-    offsets = sum(1 << i for i, value in enumerate(ranges) if value > 255)
-    e[112:119] = bytes([offsets, *(v - 255 if v > 255 else v for v in ranges), max_clock, 1])
     legacy, extended = [], []
     for t in timings[1:]:
         d = legacy_dtd(t)
         (legacy if d is not None else extended).append(d if d is not None else displayid_dtd(t))
+    ranges = [math.floor(min(t["actual_hz"] for t in timings)), math.ceil(max(t["actual_hz"] for t in timings)),
+              math.floor(min(t["clock_khz"] / (t["width"] + t["hblank"]) for t in timings)),
+              math.ceil(max(t["clock_khz"] / (t["width"] + t["hblank"]) for t in timings))]
+    max_clock = math.ceil(max(t["clock_khz"] for t in timings) / 10000)
+    if legacy:
+        # CTA requires the VGA compatibility timing and selectable RGB range.
+        e[35] |= 0x20  # established 640x480 at 60 Hz
+        ranges[0], ranges[1] = min(ranges[0], 59), max(ranges[1], 60)
+        ranges[2], ranges[3] = min(ranges[2], 31), max(ranges[3], 32)
+        max_clock = max(max_clock, 3)
+    if max(ranges) > 510 or max_clock > 255:
+        raise IddError("Requested modes exceed EDID range limits (510 Hz/kHz or 2550 MHz pixel clock).")
+    offsets = sum(1 << i for i, value in enumerate(ranges) if value > 255)
+    e[112:119] = bytes([offsets, *(v - 255 if v > 255 else v for v in ranges), max_clock, 1])
     extensions = []
     for i in range(0, len(legacy), 6):
         block = bytearray(128)
-        block[:4] = bytes([0x02, 0x03, 4, 0])  # CTA with explicit DTDs, RGB only
+        block[:7] = bytes([0x02, 0x03, 7, 0x80, 0xe2, 0, 0x4a])  # VCDB: RGB range selectable, underscan
         payload = b"".join(legacy[i:i + 6])
-        block[4:4 + len(payload)] = payload
+        block[7:7 + len(payload)] = payload
         block[127] = (-sum(block)) & 255
         extensions.append(block)
-    for i in range(0, len(extended), 5):
-        payload = b"".join(extended[i:i + 5])
-        section = bytearray([0x13, len(payload) + 3, 0, 0, 0x03, 0, len(payload)]) + payload
+    sections = []
+    if extended:
+        # DisplayID is a complete structure even when carried by an EDID. Its
+        # first section identifies the monitor and repeats the same preferred
+        # timing as the base EDID; drivers deduplicate that identical timing.
+        name = b"Idd NVIDIA"
+        product = b"IDD" + (1).to_bytes(2, "little") + b"\0" * 4 + bytes([1, 26, len(name)]) + name
+        native = timings[0]
+        params = ((5200).to_bytes(2, "little") + (2900).to_bytes(2, "little")
+                  + native["width"].to_bytes(2, "little") + native["height"].to_bytes(2, "little")
+                  + bytes([0, 120, min(255, max(0, round(native["width"] / native["height"] * 100) - 100)), 0x77]))
+        metadata = bytes([0, 0, len(product)]) + product + bytes([1, 0, len(params)]) + params
+        records = [displayid_dtd(native, preferred=True)] + extended
+        sections.append((metadata, records[:3]))
+        sections.extend((b"", records[i:i + 5]) for i in range(3, len(records), 5))
+    for i, (metadata, records) in enumerate(sections):
+        payload = b"".join(records)
+        body = metadata + bytes([0x03, 0, len(payload)]) + payload
+        section = bytearray([0x13, len(body), 3 if i == 0 else 0, len(sections) - 1 if i == 0 else 0]) + body
         section.append((-sum(section)) & 255)  # DisplayID's own checksum
         block = bytearray(128)
         block[0] = 0x70

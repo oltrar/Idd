@@ -36,13 +36,17 @@ def decode_timings(data):
                 legacy(block[index:index + 18])
         elif block[0] == 0x70:
             assert sum(block[1:6 + block[2]]) % 256 == 0
-            assert block[5] == 0x03
-            for index in range(8, 8 + block[7], 20):
-                d = block[index:index + 20]
-                clock = (int.from_bytes(d[:3], "little") + 1) * 10000
-                values = [int.from_bytes(d[i:i + 2], "little") + 1 for i in range(4, 20, 2)]
-                width, hb, _, _, height, vb, _, _ = values
-                found.append((width, height, clock / (width + hb) / (height + vb), clock))
+            position = 5
+            while position < 5 + block[2]:
+                length = block[position + 2]
+                if block[position] == 0x03:
+                    for index in range(position + 3, position + 3 + length, 20):
+                        d = block[index:index + 20]
+                        clock = (int.from_bytes(d[:3], "little") + 1) * 10000
+                        values = [int.from_bytes(d[i:i + 2], "little") + 1 for i in range(4, 20, 2)]
+                        width, hb, _, _, height, vb, _, _ = values
+                        found.append((width, height, clock / (width + hb) / (height + vb), clock))
+                position += 3 + length
     return found
 
 
@@ -108,7 +112,7 @@ class EdidTests(unittest.TestCase):
         decoded = decode_timings(data)
         expected = {(m["width"], m["height"], rate) for m in idd.DEFAULT_MODES["modes"] for rate in m["refresh_rates"]}
         self.assertEqual({(w, h, round(hz)) for w, h, hz, _ in decoded}, expected)
-        self.assertEqual(len(decoded), len(expected))
+        self.assertEqual(len(set(decoded)), len(expected))  # base/DisplayID preferred timing is identical
         self.assertGreater(len(data), 128)
         self.assertEqual(data[126], len(data) // 128 - 1)
         for index in range(0, len(data), 128):
@@ -153,7 +157,7 @@ class EdidTests(unittest.TestCase):
             {"width": 1920, "height": 1080, "refresh_rates": [60]},
             {"width": 3840, "height": 2160, "refresh_rates": list(range(83, 106))}]}
         data = idd.modes_edid(profile)
-        self.assertEqual(len(decode_timings(data)), 24)
+        self.assertEqual(len(set(decode_timings(data))), 24)
         self.assertLessEqual(len(data), 1024)
 
     def test_invalid_profiles_are_rejected(self):

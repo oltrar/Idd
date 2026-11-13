@@ -121,6 +121,11 @@ High pixel clocks also require sufficient NVIDIA display-engine/link bandwidth.
 On HDMI, driver TMDS/HDMI capability validation may filter high-clock modes.
 The project does not override those hardware/driver limits.
 
+When CTA timing extensions are needed, a 640×480/60 Hz compatibility mode is
+also advertised as required by CTA. DisplayID repeats the same preferred timing
+as the base EDID and includes monitor identity, native dimensions, and section
+counts; identical preferred timings are deduplicated by the display stack.
+
 You can validate or export a profile without a GPU:
 
 ```sh
