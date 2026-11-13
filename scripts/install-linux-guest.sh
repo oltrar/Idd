@@ -157,17 +157,28 @@ if [[ "$COMPOSITOR" == drm ]]; then
     printf '%s\n' drm > /etc/idd/backend
     printf '%s\n' 0.4.1 > /etc/idd/hermes-kms-version
 
-    workdir=$(mktemp -d)
-    cleanup() { rm -rf -- "$workdir"; }
-    trap cleanup EXIT
+    HERMES_DIR="$(dirname "$0")/../vendor/Hermes-KMS"
+    if [[ -f "$HERMES_DIR/Makefile" ]]; then
+        actual_commit=$(git -C "$HERMES_DIR" rev-parse HEAD 2>/dev/null || true)
+        [[ "$actual_commit" == "$COMMIT" ]] ||
+            fail "vendor/Hermes-KMS is at '${actual_commit:-not a Git checkout}', expected pinned commit $COMMIT. Update/init the submodule with: git submodule update --init vendor/Hermes-KMS"
+    else
+        # Plain git clone (without --recurse-submodules) falls back to fetching
+        # the same pinned upstream commit into a temporary directory.
+        workdir=$(mktemp -d)
+        cleanup() { rm -rf -- "$workdir"; }
+        trap cleanup EXIT
 
-    git init "$workdir/Hermes-KMS"
-    git -C "$workdir/Hermes-KMS" remote add origin "$REPO"
-    git -C "$workdir/Hermes-KMS" fetch --depth 1 origin "$COMMIT"
-    git -C "$workdir/Hermes-KMS" checkout --detach FETCH_HEAD
-    make -C "$workdir/Hermes-KMS" dkms-install
-    make -C "$workdir/Hermes-KMS" tools/hermes-kmsctl/hermes-kmsctl
-    install -Dm0755 "$workdir/Hermes-KMS/tools/hermes-kmsctl/hermes-kmsctl" /usr/local/bin/idd-kmsctl
+        git init "$workdir/Hermes-KMS"
+        git -C "$workdir/Hermes-KMS" remote add origin "$REPO"
+        git -C "$workdir/Hermes-KMS" fetch --depth 1 origin "$COMMIT"
+        git -C "$workdir/Hermes-KMS" checkout --detach FETCH_HEAD
+        HERMES_DIR="$workdir/Hermes-KMS"
+    fi
+
+    make -C "$HERMES_DIR" dkms-install
+    make -C "$HERMES_DIR" tools/hermes-kmsctl/hermes-kmsctl
+    install -Dm0755 "$HERMES_DIR/tools/hermes-kmsctl/hermes-kmsctl" /usr/local/bin/idd-kmsctl
 fi
 
 # The DRM branch wrote its marker before DKMS installation so failed
