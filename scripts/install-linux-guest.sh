@@ -113,20 +113,24 @@ install_debian_kernel_headers() {
 case "${ID:-}" in
     arch|cachyos|endeavouros|manjaro)
         command -v pacman >/dev/null 2>&1 || fail 'pacman not found'
-        pacman -S --needed --noconfirm wlr-randr pciutils
+        pacman -S --needed --noconfirm pciutils
         if [[ "$COMPOSITOR" == drm ]]; then
             pacman -S --needed --noconfirm base-devel dkms git pahole
             install_arch_kernel_headers
+        else
+            pacman -S --needed --noconfirm wlr-randr
         fi
         ;;
     debian|ubuntu)
         command -v apt-get >/dev/null 2>&1 || fail 'apt-get not found'
         export DEBIAN_FRONTEND=noninteractive
         apt-get update
-        apt-get install -y wlr-randr pciutils
+        apt-get install -y pciutils
         if [[ "$COMPOSITOR" == drm ]]; then
             apt-get install -y build-essential dkms git dwarves
             install_debian_kernel_headers
+        else
+            apt-get install -y wlr-randr
         fi
         ;;
     *)
@@ -139,10 +143,16 @@ if [[ "$COMPOSITOR" == drm ]]; then
 
     # Upstream's dkms-install target removes prior Hermes-KMS DKMS registrations
     # before installing. Do not silently take over a driver another package owns.
+    shopt -s nullglob
+    existing_hermes_sources=(/usr/src/hermes-kms-*)
+    shopt -u nullglob
     if [[ -d /sys/module/hermes_kms ]] ||
        { command -v modinfo >/dev/null 2>&1 && modinfo hermes_kms >/dev/null 2>&1; } ||
-       { command -v dkms >/dev/null 2>&1 && dkms status 2>/dev/null | grep '^hermes-kms/' >/dev/null; }; then
-        fail "Hermes-KMS is already installed, loaded, or registered with DKMS. This installer will not replace an existing installation; remove/upgrade that installation explicitly first."
+       { command -v dkms >/dev/null 2>&1 && dkms status 2>/dev/null | grep '^hermes-kms/' >/dev/null; } ||
+       [[ -e /usr/lib/modules-load.d/hermes-kms.conf ]] ||
+       [[ -e /usr/lib/modprobe.d/hermes-kms.conf ]] ||
+       (( ${#existing_hermes_sources[@]} > 0 )); then
+        fail "Hermes-KMS files or module are already installed. This installer will not overwrite an existing DKMS/package installation; remove or upgrade that installation explicitly first."
     fi
 
     # Record ownership before any DKMS writes so the scoped uninstaller can
