@@ -9,7 +9,7 @@ This repository now contains an **installable guest-side prototype**. It provisi
 - A real DRM/KMS virtual display connector named `HERMES-1` inside the guest.
 - Synthetic EDID and modes without an HDMI/DP dummy plug.
 - Guest-only installation and lifecycle: the output is connected while the guest service owns it and disconnects when that owner exits.
-- The passed-through NVIDIA GPU is explicitly selected as the compositor's primary GPU: KWin receives NVIDIA-first `KWIN_DRM_DEVICES` plus `KWIN_RENDER_NODES` where supported (KWin 6.7+); Mutter receives its documented preferred-primary-GPU udev tag. Hermes-KMS is a separate virtual display endpoint, not an NVIDIA physical connector. Verify actual rendering with `nvidia-smi` after logging in again.
+- The passed-through NVIDIA GPU is explicitly selected as the compositor's render GPU: KWin receives NVIDIA-first `KWIN_DRM_DEVICES` plus `KWIN_RENDER_NODES` where supported (KWin 6.7+); Mutter receives its documented preferred-primary-GPU udev tag. The compositor renders on NVIDIA and imports the buffers into Hermes-KMS for virtual scanout. Hermes-KMS is a separate guest-local display endpoint, not an NVIDIA physical connector. Verify actual rendering with `nvidia-smi` after logging in again.
 - KDE Plasma / KWin and GNOME / Mutter use the guest DRM/KMS output.
 - Hyprland uses its compositor-native headless output helper (not a DRM connector; see limitations). The default install configures the NVIDIA renderer environment for all three desktops, so switching between installed desktop sessions does not require reinstalling.
 
