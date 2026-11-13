@@ -26,6 +26,9 @@ source_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 install -Dm755 "$source_dir/src/idd.py" "$destdir/usr/local/bin/idd"
 install -Dm644 "$source_dir/systemd/idd-display.service" "$destdir/etc/systemd/system/idd-display.service"
 install -Dm644 "$source_dir/udev/71-idd-hotplug.rules" "$destdir/etc/udev/rules.d/71-idd-hotplug.rules"
+if [[ ! -e "$destdir/etc/idd/modes.json" ]]; then
+  install -Dm644 "$source_dir/config/modes.json" "$destdir/etc/idd/modes.json"
+fi
 if [[ -z "$destdir" ]]; then
   systemctl daemon-reload
   udevadm control --reload-rules

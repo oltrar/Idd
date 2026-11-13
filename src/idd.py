@@ -5,6 +5,7 @@ import argparse
 import contextlib
 from datetime import datetime, timezone
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -65,6 +66,164 @@ def make_edid():
     e[108:126] = bytes.fromhex("000000fd003b3d43440f010a202020202020")
     e[127] = (-sum(e)) & 255
     return validate_edid(bytes(e))
+
+
+DEFAULT_MODES = {
+    "preferred": "1920x1080@60",
+    "modes": [
+        {"width": 1280, "height": 720, "refresh_rates": [60]},
+        {"width": 1920, "height": 1080, "refresh_rates": [60, 120, 144, 165, 240]},
+        {"width": 2560, "height": 1440, "refresh_rates": [60, 120, 144, 165]},
+        {"width": 3840, "height": 2160, "refresh_rates": [30, 60, 120]},
+    ],
+}
+
+
+def mode_name(width, height, refresh):
+    return f"{width}x{height}@{refresh:g}"
+
+
+def mode_timing(width, height, refresh, rb=2):
+    """Progressive CVT reduced blanking; EDID clocks are quantized to 10 kHz."""
+    if (width, height, refresh) == (1920, 1080, 60):
+        # Keep the known-working initial monitor's preferred timing unchanged.
+        hblank, hfront, hsync, vblank, vfront, vsync, clock, flags = 280, 88, 44, 45, 4, 5, 148500, 0x1e
+    else:
+        # CVT: at least 460 us vertical blanking. RBv2 has 80 clocks H blank,
+        # 8-clock H front porch, 8-line V sync, and 6-line V back porch.
+        period = (1000000 / refresh - 460) / height
+        hblank, hfront, hsync = (80, 8, 32) if rb == 2 else (160, 48, 32)
+        if rb == 2:
+            vsync = 8
+            vblank = max(math.floor(460 / period) + 1, 15)
+            vfront = vblank - vsync - 6
+            clock = math.floor(refresh * (height + vblank) * (width + hblank) / 10000) * 10
+        else:
+            vsync = next((s for x, y, s in ((4, 3, 4), (16, 9, 5), (16, 10, 6),
+                                           (5, 4, 7), (15, 9, 7)) if width * y == height * x), 10)
+            vfront = 3
+            vblank = max(math.floor(460 / period) + 1, vfront + vsync + 7)
+            clock = math.floor(refresh * (height + vblank) * (width + hblank) / 250000) * 250
+        flags = 0x1a  # digital separate sync, +H/-V
+    return {"width": width, "height": height, "refresh_hz": refresh,
+            "clock_khz": clock, "hblank": hblank, "hfront": hfront, "hsync": hsync,
+            "vblank": vblank, "vfront": vfront, "vsync": vsync, "flags": flags,
+            "actual_hz": clock * 1000 / ((width + hblank) * (height + vblank))}
+
+
+def legacy_dtd(t):
+    if (t["clock_khz"] > 655350 or max(t["width"], t["height"], t["hblank"], t["vblank"]) > 4095
+            or max(t["vfront"], t["vsync"]) > 63):
+        return None
+    w, h, hb, vb = (t[key] for key in ("width", "height", "hblank", "vblank"))
+    hp, hs, vp, vs = (t[key] for key in ("hfront", "hsync", "vfront", "vsync"))
+    d = bytearray(18)
+    d[:2] = (t["clock_khz"] // 10).to_bytes(2, "little")
+    d[2:8] = bytes([w & 255, hb & 255, ((w >> 8) << 4) | (hb >> 8),
+                     h & 255, vb & 255, ((h >> 8) << 4) | (vb >> 8)])
+    d[8:12] = bytes([hp & 255, hs & 255, ((vp & 15) << 4) | (vs & 15),
+                      ((hp >> 8) << 6) | ((hs >> 8) << 4) | ((vp >> 4) << 2) | (vs >> 4)])
+    d[12:15] = bytes.fromhex("082221")  # 520 x 290 mm
+    d[17] = t["flags"]
+    return bytes(d)
+
+
+def displayid_dtd(t):
+    # DisplayID 1.3 Type I: a 24-bit 10 kHz clock and 16-bit dimensions.
+    # This avoids truncating 1440p165/4K120 into the 16-bit legacy clock field.
+    data = bytearray((t["clock_khz"] // 10 - 1).to_bytes(3, "little"))
+    data.append(0x04)  # 16:9 aspect (custom ratios below use undefined).
+    if t["width"] * 9 != t["height"] * 16:
+        data[3] = 0x08
+    for key in ("width", "hblank", "hfront", "hsync", "height", "vblank", "vfront", "vsync"):
+        value = t[key] - 1
+        if key == "hfront" and t["flags"] & 2:
+            value |= 0x8000
+        if key == "vfront" and t["flags"] & 4:
+            value |= 0x8000
+        data.extend(value.to_bytes(2, "little"))
+    return bytes(data)
+
+
+def profile_timings(profile):
+    if not isinstance(profile, dict) or set(profile) != {"preferred", "modes"}:
+        raise IddError("Mode config must have exactly preferred and modes keys.")
+    if not isinstance(profile["modes"], list) or not 1 <= len(profile["modes"]) <= 24:
+        raise IddError("modes must contain 1 to 24 resolution entries.")
+    timings = {}
+    for entry in profile["modes"]:
+        if not isinstance(entry, dict) or set(entry) != {"width", "height", "refresh_rates"}:
+            raise IddError("Each mode needs width, height, and refresh_rates.")
+        width, height = entry["width"], entry["height"]
+        if type(width) is not int or type(height) is not int or not (320 <= width <= 8192 and 200 <= height <= 8192):
+            raise IddError("Mode dimensions must be integers: width 320..8192, height 200..8192.")
+        rates = entry["refresh_rates"]
+        if not isinstance(rates, list) or not 1 <= len(rates) <= 24:
+            raise IddError("refresh_rates must be a nonempty list (maximum 24 rates).")
+        for rate in rates:
+            if type(rate) not in (int, float) or not math.isfinite(rate) or not 24 <= rate <= 480:
+                raise IddError("Refresh rates must be finite numbers between 24 and 480 Hz.")
+            name = mode_name(width, height, rate)
+            if name in timings:
+                raise IddError(f"Duplicate mode: {name}")
+            timings[name] = mode_timing(width, height, rate)
+    if len(timings) > 24:
+        raise IddError("At most 24 resolution/refresh combinations are supported.")
+    preferred = profile["preferred"]
+    if not isinstance(preferred, str) or preferred not in timings:
+        raise IddError("preferred must match a listed mode, for example 1920x1080@60.")
+    if legacy_dtd(timings[preferred]) is None:
+        # RBv1's short vertical front porch fits legacy DTDs for more modes.
+        t = timings[preferred]
+        timings[preferred] = mode_timing(t["width"], t["height"], t["refresh_hz"], rb=1)
+        if legacy_dtd(timings[preferred]) is None:
+            raise IddError("Preferred timing exceeds legacy EDID limits; use 1080p60 or 4K60 as preferred. "
+                           "Higher modes can still be listed and selected in the desktop.")
+    return [timings[preferred]] + [t for name, t in timings.items() if name != preferred]
+
+
+def modes_edid(profile):
+    timings = profile_timings(profile)
+    e = bytearray(make_edid())
+    e[54:72] = legacy_dtd(timings[0])
+    ranges = [math.floor(min(t["actual_hz"] for t in timings)), math.ceil(max(t["actual_hz"] for t in timings)),
+              math.floor(min(t["clock_khz"] / (t["width"] + t["hblank"]) for t in timings)),
+              math.ceil(max(t["clock_khz"] / (t["width"] + t["hblank"]) for t in timings))]
+    max_clock = math.ceil(max(t["clock_khz"] for t in timings) / 10000)
+    if max(ranges) > 510 or max_clock > 255:
+        raise IddError("Requested modes exceed EDID range limits (510 Hz/kHz or 2550 MHz pixel clock).")
+    offsets = sum(1 << i for i, value in enumerate(ranges) if value > 255)
+    e[112:119] = bytes([offsets, *(v - 255 if v > 255 else v for v in ranges), max_clock, 1])
+    legacy, extended = [], []
+    for t in timings[1:]:
+        d = legacy_dtd(t)
+        (legacy if d is not None else extended).append(d if d is not None else displayid_dtd(t))
+    extensions = []
+    for i in range(0, len(legacy), 6):
+        block = bytearray(128)
+        block[:4] = bytes([0x02, 0x03, 4, 0])  # CTA with explicit DTDs, RGB only
+        payload = b"".join(legacy[i:i + 6])
+        block[4:4 + len(payload)] = payload
+        block[127] = (-sum(block)) & 255
+        extensions.append(block)
+    for i in range(0, len(extended), 5):
+        payload = b"".join(extended[i:i + 5])
+        section = bytearray([0x13, len(payload) + 3, 0, 0, 0x03, 0, len(payload)]) + payload
+        section.append((-sum(section)) & 255)  # DisplayID's own checksum
+        block = bytearray(128)
+        block[0] = 0x70
+        block[1:1 + len(section)] = section
+        block[127] = (-sum(block)) & 255      # outer EDID checksum
+        extensions.append(block)
+    e[126] = len(extensions)
+    e[127] = (-sum(e[:127])) & 255
+    return validate_edid(bytes(e) + b"".join(extensions))
+
+
+def mode_summary(profile):
+    return [{"mode": mode_name(t["width"], t["height"], t["refresh_hz"]),
+             "encoded_refresh_hz": round(t["actual_hz"], 4), "pixel_clock_mhz": t["clock_khz"] / 1000}
+            for t in profile_timings(profile)]
 
 
 def preferred_size(data):
@@ -147,7 +306,20 @@ class Kernel:
         if cfg.get("guest_only") is not True:
             raise IddError("Missing guest-only acknowledgement. Run idd configure inside the VM.")
         validate_target(cfg.get("pci"), cfg.get("connector"))
-        validate_edid(bytes.fromhex(cfg["edid"]))
+        default_file = self.config.parent / "modes.json"
+        if ("modes_file" not in cfg and cfg.get("edid_source") != "custom"
+                and cfg.get("edid") == make_edid().hex() and default_file.exists()):
+            # Seamless upgrade of the original 1080p60-only configuration.
+            cfg["modes_file"] = str(default_file)
+        if "modes_file" in cfg:
+            path = Path(cfg["modes_file"])
+            if not path.is_absolute():
+                raise IddError("modes_file must be an absolute guest path.")
+            profile = json.loads(path.read_text())
+            cfg["edid"] = modes_edid(profile).hex()
+            cfg["requested_modes"] = mode_summary(profile)
+        else:
+            validate_edid(bytes.fromhex(cfg["edid"]))
         return cfg
 
     def notify(self, card):
@@ -163,30 +335,47 @@ class Kernel:
             yield
 
 
-def configure(k, pci, connector, edid):
+def configure(k, pci, connector, edid=None, modes_file=None):
     validate_target(pci, connector)
-    validate_edid(edid)
+    if edid is not None and modes_file is not None:
+        raise IddError("Choose a custom EDID or a modes file, not both.")
     if k.state.exists():
         raise IddError("Run idd down before changing configuration.")
-    cfg = {"guest_only": True, "pci": pci, "connector": connector, "edid": edid.hex()}
+    cfg = {"guest_only": True, "pci": pci, "connector": connector}
+    profile_path = None
+    if edid is not None:
+        cfg.update(edid=validate_edid(edid).hex(), edid_source="custom")
+    else:
+        profile_path = Path(modes_file).resolve() if modes_file is not None else k.config.parent / "modes.json"
+        profile = json.loads(profile_path.read_text()) if profile_path.exists() else DEFAULT_MODES
+        if modes_file is not None and not profile_path.exists():
+            raise IddError(f"Mode config does not exist: {profile_path}")
+        modes_edid(profile)  # validate before any configuration writes
+        cfg["modes_file"] = str(profile_path)
     k.check_kms()
     _, output, _ = k.target(cfg, debug=False)
     if (output / "status").read_text().strip() != "disconnected":
         raise IddError("Select an unused, disconnected connector. Unplug its cable first.")
+    if profile_path is not None and not profile_path.exists():
+        atomic_write(profile_path, (json.dumps(profile, indent=2) + "\n").encode(), mode=0o644)
     atomic_write(k.config, (json.dumps(cfg, indent=2) + "\n").encode())
-    return cfg
+    return k.load()
 
 
 def report(k, cfg):
     card, output, _ = k.target(cfg, debug=False)
     data = (output / "edid").read_bytes()
-    return {
+    result = {
         "pci": cfg["pci"], "card": card.name, "connector": cfg["connector"],
         "driver": "nvidia", "status": (output / "status").read_text().strip(),
         "enabled": (output / "enabled").read_text().strip(),
         "edid_bytes": len(data), "edid_matches": data == bytes.fromhex(cfg["edid"]),
         "modes": (output / "modes").read_text().splitlines(),
     }
+    if "requested_modes" in cfg:
+        result["requested_modes"] = cfg["requested_modes"]
+        result["refresh_note"] = "sysfs modes lists resolutions only; use desktop display settings for accepted refresh rates."
+    return result
 
 
 def verify(k, cfg, active=False):
@@ -264,6 +453,25 @@ def down(k):
     restore(k, state)
     k.state.unlink()
     return {"managed": False, "restored": state["connector"], "pci": state["pci"]}
+
+
+def apply_config(k, cfg):
+    """Validate before unplugging; restore the previous EDID if registration fails."""
+    old = json.loads(k.state.read_text()) if k.state.exists() else None
+    if old is not None and all(old.get(key) == cfg[key] for key in ("pci", "connector", "edid")):
+        return up(k, cfg)
+    if old is not None:
+        down(k)
+    try:
+        return up(k, cfg)
+    except (OSError, IddError) as error:
+        if old is not None and not k.state.exists():
+            try:
+                up(k, old)
+            except (OSError, IddError) as recovery_error:
+                raise IddError(f"New modes failed: {error}; previous display recovery failed: {recovery_error}")
+            raise IddError(f"New modes failed; previous display restored: {error}")
+        raise
 
 
 def prepare(k, timeout):
@@ -456,15 +664,22 @@ def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__)
     sub = p.add_subparsers(dest="command", required=True)
     sub.add_parser("list", help="Read-only NVIDIA cards/connectors")
-    e = sub.add_parser("edid", help="Write the built-in 1080p60 EDID")
+    e = sub.add_parser("edid", help="Write a legacy or configurable multi-mode EDID")
     e.add_argument("output", type=Path)
+    e.add_argument("--modes", type=Path, help="JSON mode profile; omit for the legacy 1080p60 EDID")
+    m = sub.add_parser("modes", help="Validate and show the configured resolutions and refresh rates")
+    m.add_argument("--file", type=Path, help="Preview a JSON profile without a GPU or installation")
     c = sub.add_parser("configure", help="Select the GPU and unused port inside the guest")
     c.add_argument("--guest-only", required=True, action="store_true")
     c.add_argument("--pci", required=True)
     c.add_argument("--connector", required=True)
-    c.add_argument("--edid", type=Path, help="Optional monitor EDID; default is synthetic 1080p60")
+    source = c.add_mutually_exclusive_group()
+    source.add_argument("--edid", type=Path, help="Use an existing monitor EDID instead of generated modes")
+    source.add_argument("--modes", type=Path, help="JSON profile; default is /etc/idd/modes.json")
     u = sub.add_parser("up", help="Enable the configured NVIDIA output")
     u.add_argument("--timeout", type=float, default=20)
+    a = sub.add_parser("apply", help="Apply modes.json edits, restoring the previous display if registration fails")
+    a.add_argument("--timeout", type=float, default=20)
     sub.add_parser("down", help="Restore normal physical connection detection")
     sub.add_parser("status", help="Read-only configured output state")
     v = sub.add_parser("verify", help="Check NVIDIA ownership, EDID and advertised modes")
@@ -479,9 +694,16 @@ def main(argv=None):
     args = p.parse_args(argv)
     try:
         if args.command == "edid":
+            data = modes_edid(json.loads(args.modes.read_text())) if args.modes else make_edid()
             with args.output.open("xb") as f:
-                f.write(make_edid())
-            print(f"Wrote {args.output} (1920x1080 at 60 Hz, SDR)")
+                f.write(data)
+            print(f"Wrote {args.output} ({len(data)} bytes, SDR)")
+            return 0
+        if args.command == "modes" and args.file:
+            profile = json.loads(args.file.read_text())
+            data = modes_edid(profile)
+            print(json.dumps({"file": str(args.file), "preferred": profile["preferred"],
+                              "edid_bytes": len(data), "requested_modes": mode_summary(profile)}, indent=2))
             return 0
         if sys.platform != "linux":
             raise IddError("Run display commands inside the Linux guest.")
@@ -498,18 +720,19 @@ def main(argv=None):
             if args.output.exists():
                 raise IddError("Report file already exists; select a new --output path.")
             return run_probe(k, args)
-        if args.command in ("configure", "up", "down"):
+        if args.command in ("configure", "up", "down", "apply"):
             if os.geteuid() != 0:
                 raise IddError("This command requires root inside the guest.")
             with k.locked():
                 if args.command == "configure":
-                    data = args.edid.read_bytes() if args.edid else make_edid()
-                    result = configure(k, args.pci, args.connector, data)
-                    result = {key: value for key, value in result.items() if key != "edid"}
-                elif args.command == "up":
+                    data = args.edid.read_bytes() if args.edid else None
+                    result = configure(k, args.pci, args.connector, data, args.modes)
+                    result = {key: value for key, value in result.items() if key not in ("edid", "requested_modes")}
+                elif args.command in ("up", "apply"):
                     if not 0 <= args.timeout <= 30:
                         raise IddError("Timeout must be between 0 and 30 seconds.")
-                    result = up(k, prepare(k, args.timeout))
+                    cfg = prepare(k, args.timeout)
+                    result = apply_config(k, cfg) if args.command == "apply" else up(k, cfg)
                 else:
                     result = down(k)
         elif args.command == "list":
@@ -520,6 +743,10 @@ def main(argv=None):
                     outputs.append({"connector": path.parent.name[len(card.name) + 1:],
                                     "status": path.read_text().strip()})
                 result.append({"pci": pci, "card": card.name, "connectors": outputs})
+        elif args.command == "modes":
+            cfg = k.load()
+            result = {"modes_file": cfg.get("modes_file"), "edid_source": cfg.get("edid_source", "generated"),
+                      "edid_bytes": len(bytes.fromhex(cfg["edid"])), "requested_modes": cfg.get("requested_modes", [])}
         elif args.command == "status":
             result = report(k, k.load())
         else:

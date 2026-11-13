@@ -7,14 +7,39 @@ server, or extra software-rendered DRM card. The output belongs to `nvidia-drm`.
 Includes an executable implementation, installer, boot service, hotplug rule,
 EDID generator, rollback, and tests. It uses NVIDIA's existing KMS connector-force
 and EDID path. An existing `DP-1`/`HDMI-A-1` becomes a connected monitor; a new
-connector name is not allocated. The default monitor is `Idd NVIDIA`, 1920×1080
-at 60 Hz, SDR. This is not an implementation of Windows IddCx.
+connector name is not allocated. `Idd NVIDIA` advertises configurable SDR modes
+from `/etc/idd/modes.json`, with 1920×1080/60 Hz preferred initially. This is not
+an implementation of Windows IddCx.
 
-**Validation status:** control-path tests and CI are provided. Unplugged NVIDIA
-scanout and KDE/GNOME/Hyprland hardware acceptance still require the actual guest;
-they have not been established by the supplied telemetry. Driver branches and
-connector types can behave differently. See the [setup and validation
-guide](docs/linux-guest-display.md) for exact checks and limitations.
+**Validation status:** the user has confirmed a working software monitor on
+CachyOS/RTX 3080 Ti/615.78.08. Both supplied probe reports show forced `DP-1`
+using an active NVIDIA CRTC at 1080p60. The additional high-resolution/refresh
+modes are generated and tested in CI; their availability still depends on
+NVIDIA's mode validation. See the [guide](docs/linux-guest-display.md).
+
+## Resolutions and refresh rates
+
+Edit `/etc/idd/modes.json`, then apply it:
+
+```sh
+sudo nano /etc/idd/modes.json
+sudo idd apply
+```
+
+Default requested modes:
+
+| Resolution | Refresh rates (Hz) |
+| --- | --- |
+| 1280×720 | 60 |
+| 1920×1080 | 60, 120, 144, 165, 240 |
+| 2560×1440 | 60, 120, 144, 165 |
+| 3840×2160 | 30, 60, 120 |
+
+Choose an advertised mode in the desktop display settings. `preferred` is a hint
+for new desktop configurations; it does not override a mode already saved by
+your compositor. The installer preserves edited profiles. Existing original
+1080p-only configurations adopt the mode file automatically after upgrading;
+explicit custom EDIDs are preserved. See [upgrade and config examples](docs/linux-guest-display.md#configurable-modes-and-upgrading).
 
 ## One-run check without installing
 
