@@ -10,14 +10,22 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Parse guest installer and control scripts
+      - name: Install static analysis tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+      - name: Parse and lint guest installer and control scripts
         shell: bash
         run: |
           set -euo pipefail
           for script in scripts/*.sh scripts/iddctl; do
             echo "Checking $script"
             bash -n "$script"
+            shellcheck --severity=warning "$script"
           done
+          sudo install -Dm0755 /bin/true /usr/local/bin/iddctl
+          sudo systemd-analyze verify systemd/idd-virtual-display.service
+          sudo rm -f /usr/local/bin/iddctl
 
   build-hermes-kms:
     runs-on: ubuntu-latest
