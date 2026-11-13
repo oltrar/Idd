@@ -1,0 +1,30 @@
+name: Test guest display tooling
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Unit tests (no GPU required)
+        run: python3 -m unittest discover -s tests -v
+      - name: Syntax and staged installation
+        run: |
+          bash -n scripts/*.sh
+          python3 -m py_compile src/idd.py
+          cp src/idd.py /tmp/idd-check.py
+          python3 /tmp/idd-check.py probe --help
+          stage=$(mktemp -d)
+          bash scripts/install.sh --guest-only --destdir "$stage"
+          cmp src/idd.py "$stage/usr/local/bin/idd"
+          test -x "$stage/usr/local/bin/idd"
+          test -f "$stage/etc/udev/rules.d/71-idd-hotplug.rules"
+          sudo install -m755 src/idd.py /usr/local/bin/idd
+          systemd-analyze verify systemd/idd-display.service
+      - name: Independently decode generated EDID
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y edid-decode
+          python3 src/idd.py edid /tmp/idd.edid
+          edid-decode --check /tmp/idd.edid

@@ -1,0 +1,17 @@
+[Unit]
+Description=Guest-local NVIDIA virtual display
+After=systemd-modules-load.service systemd-udev-trigger.service
+Before=display-manager.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/idd up
+ExecStop=/usr/local/bin/idd down
+ExecStopPost=/usr/local/bin/idd down
+TimeoutStartSec=40
+TimeoutStopSec=15
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
