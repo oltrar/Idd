@@ -83,10 +83,11 @@ This optional mode installs `iddctl` and `wlr-randr` but does not build/load Her
 
 ## Use
 
-The driver service starts at guest boot:
+The driver service starts at guest boot. Its systemd unit waits until Hermes-KMS reports the connector as enabled and connected before the service start completes; it is ordered before `display-manager.service`.
 
 ```sh
 iddctl status
+iddctl wait-ready
 iddctl verify
 ```
 
