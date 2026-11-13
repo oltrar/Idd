@@ -1,10 +1,13 @@
 """Control-path tests with a simulated DRM kernel; these do not test GPU scanout."""
 import importlib.util
+import contextlib
 import json
 import os
 from pathlib import Path
 import tempfile
+from types import SimpleNamespace
 import unittest
+from unittest import mock
 
 spec = importlib.util.spec_from_file_location("idd", Path(__file__).parents[1] / "src/idd.py")
 idd = importlib.util.module_from_spec(spec)
@@ -213,6 +216,115 @@ class ControlTests(unittest.TestCase):
                           ("0000:03:00.0", "DP-1/../../DP-2")):
             with self.assertRaises(idd.IddError):
                 idd.validate_target(pci, conn)
+
+    def do_probe(self, result=None, **kwargs):
+        result = {} if result is None else result
+        with mock.patch.object(idd, "probe_hotplug", return_value=contextlib.nullcontext()):
+            idd.probe(self.k, result, wait=0, **kwargs)
+        return result
+
+    def test_probe_needs_no_persistent_configuration(self):
+        before = self.k.config.read_bytes()
+        self.k.config.unlink()
+        result = self.do_probe()
+        self.assertEqual(result["outcome"], "enumerated_compositor_did_not_enable")
+        self.assertEqual(result["before"], result["after"])
+        self.assertFalse(self.k.config.exists())
+        self.assertFalse(self.k.state.exists())
+        self.assertTrue(before)
+        self.assertFalse(result["frames_verified"])
+
+    def test_probe_observes_encoder_after_hotplug_and_restores(self):
+        actual_notify = self.k.notify
+
+        def compositor_notified(card):
+            actual_notify(card)
+            if (self.k.output / "status").read_text().strip() == "connected":
+                self.k.put(self.k.output / "enabled", b"enabled\n")
+
+        with mock.patch.object(self.k, "notify", side_effect=compositor_notified):
+            result = self.do_probe()
+        self.assertEqual(result["outcome"], "encoder_assigned_frames_unverified")
+        self.assertEqual(result["before"], result["after"])
+        self.assertFalse(self.k.state.exists())
+
+    def test_probe_leaves_existing_managed_display_untouched(self):
+        idd.up(self.k, self.cfg)
+        writes = len(self.k.writes)
+        with mock.patch.object(idd, "probe_hotplug", side_effect=AssertionError("Must not change rules")):
+            result = {}
+            idd.probe(self.k, result)
+        self.assertEqual(result["outcome"], "existing_display_inspected")
+        self.assertEqual(len(self.k.writes), writes)
+        self.assertTrue(self.k.state.exists())
+
+    def test_probe_failed_registration_also_restores(self):
+        self.k.reject_modes = True
+        result = self.do_probe()
+        self.assertEqual(result["outcome"], "registration_failed")
+        self.assertEqual(result["before"], result["after"])
+        self.assertIn("error", result["attempts"][0])
+        self.assertFalse(self.k.state.exists())
+
+    def test_probe_never_replaces_an_occupied_monitor(self):
+        self.k.put(self.k.output / "status", b"connected\n")
+        with self.assertRaisesRegex(idd.IddError, "unused"):
+            self.do_probe()
+        self.assertFalse(self.k.writes)
+
+    def test_probe_does_not_reset_someone_elses_override(self):
+        self.k.put(self.k.endpoint / "force", b"off\n")
+        result = self.do_probe()
+        self.assertEqual(result["outcome"], "registration_failed")
+        self.assertFalse(self.k.writes)
+        self.assertEqual((self.k.endpoint / "force").read_bytes(), b"off\n")
+
+    def test_probe_requires_explicit_pci_for_multiple_nvidia_gpus(self):
+        self.k.add_card("card8", "0000:04:00.0", "nvidia", "10DE:2208", 6)
+        with self.assertRaisesRegex(idd.IddError, "--pci"):
+            self.do_probe()
+        self.assertFalse(self.k.writes)
+        result = self.do_probe(pci="0000:03:00.0")
+        self.assertEqual(result["attempts"][0]["pci"], "0000:03:00.0")
+
+    def test_probe_keyboard_interruption_still_restores(self):
+        with mock.patch.object(idd, "probe_hotplug", return_value=contextlib.nullcontext()), \
+             mock.patch.object(idd.time, "sleep", side_effect=KeyboardInterrupt):
+            with self.assertRaises(KeyboardInterrupt):
+                idd.probe(self.k, {}, wait=1)
+        self.assertFalse(self.k.state.exists())
+        self.assertEqual((self.k.endpoint / "edid_override").read_bytes(), b"")
+
+    def test_probe_cleanup_failure_preserves_recovery_state(self):
+        self.k.fail_notify = True
+        result = self.do_probe()
+        self.assertEqual(result["outcome"], "cleanup_required")
+        self.assertTrue(result["attempts"][0]["recovery_state_remaining"])
+        self.assertIn("cleanup_error", result["attempts"][0])
+
+    def test_probe_preflight_error_still_saves_one_report(self):
+        args = SimpleNamespace(output=Path(self.temp.name) / "report.json",
+                               pci=None, connector=None, wait=0)
+        with mock.patch.object(self.k, "locked", return_value=contextlib.nullcontext()), \
+             mock.patch.object(self.k, "check_kms", side_effect=idd.IddError("No NVIDIA KMS")), \
+             mock.patch.object(idd.os, "uname", create=True, return_value=SimpleNamespace(release="test")), \
+             mock.patch.object(idd.os.path, "ismount", return_value=True), \
+             mock.patch.object(idd, "bounded_command", return_value={"exit_code": 0, "output": ""}), \
+             mock.patch.object(idd.os, "environ", {}):
+            self.assertEqual(idd.run_probe(self.k, args), 1)
+        saved = json.loads(args.output.read_text())
+        self.assertEqual(saved["outcome"], "preflight_failed")
+        self.assertEqual(saved["error"], "No NVIDIA KMS")
+        self.assertFalse(saved["frames_verified"])
+        self.assertFalse(self.k.writes)
+
+    def test_probe_does_not_overwrite_an_existing_report(self):
+        path = Path(self.temp.name) / "existing.json"
+        path.write_text("previous result")
+        with self.assertRaises(FileExistsError):
+            idd.run_probe(self.k, SimpleNamespace(output=path))
+        self.assertEqual(path.read_text(), "previous result")
+        self.assertFalse(self.k.writes)
 
 
 if __name__ == "__main__":

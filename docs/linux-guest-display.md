@@ -20,6 +20,14 @@ override handling: [connector code](https://github.com/NVIDIA/open-gpu-kernel-mo
 and [NVKMS bridge](https://github.com/NVIDIA/open-gpu-kernel-modules/blob/615.78.08/src/nvidia-modeset/kapi/src/nvkms-kapi.c).
 This establishes an implementation path, not proof of unplugged scanout.
 
+Additional source review traces the forced state through NVKMS into
+`nvDPSetClientForcedConnected` and DisplayPort's `bClientForcedConnected` flag,
+which allows attach paths past their usual unplugged-state checks. See the
+[NVKMS DP bridge](https://github.com/NVIDIA/open-gpu-kernel-modules/blob/615.78.08/src/nvidia-modeset/src/dp/nvdp-connector.cpp)
+and [DisplayPort connector implementation](https://github.com/NVIDIA/open-gpu-kernel-modules/blob/615.78.08/src/common/displayport/src/dp_connectorimpl.cpp).
+This supports using the driver's existing force path; remaining link/modeset
+behavior still requires hardware evidence.
+
 **Arch/CachyOS, Debian, KDE, GNOME, and Hyprland remain hardware acceptance
 targets.** The supplied report was taken with HDMI connected. Automated fixtures
 cannot establish that a disconnected port will successfully present frames.
@@ -38,6 +46,53 @@ is off. Guest PCI addresses can differ from host addresses.
 `systemd-detect-virt` returning `none` does not invalidate your report:
 hypervisor identity can be hidden. `--guest-only` records your explicit choice
 of installation environment; it cannot independently certify host VFIO binding.
+
+## One-run check (no installation)
+
+There is no need to power on the guest just to collect more information now.
+When it is convenient, download `src/idd.py` alone or use the repository checkout
+and run **one command inside the guest**:
+
+```sh
+sudo python3 src/idd.py probe --guest-only
+```
+
+The file is self-contained and uses Python's standard library. If you downloaded
+it as `idd-check.py`, the command is `sudo python3 idd-check.py probe --guest-only`.
+No installer, extra package, network connection, desktop restart, or reboot is
+required. The existing NVIDIA KMS driver must already be loaded.
+
+The probe automatically finds the sole NVIDIA GPU, chooses at most one unused
+HDMI and one unused DP connector (DVI if applicable), and tests them sequentially.
+Occupied ports and other owners' overrides are left alone. It waits up to eight
+seconds per tested port for compositor encoder assignment, then restores physical
+detection. A temporary udev rule under `/run` is removed at the end; an initially
+unmounted debugfs mount is also removed if possible. There is no persistent
+configuration/service change. A temporary monitor may briefly change the desktop
+layout as the compositor processes hotplug. An existing Idd-managed output is
+only inspected and is left running.
+
+The output is one `idd-report-YYYYMMDD-HHMMSS.json` in the current directory,
+owned by the invoking sudo user. It contains NVIDIA/driver identity, kernel
+version, before/after connector state, the attempts and cleanup results, atomic
+DRM state when available, and bounded GPU-related kernel messages. It collects
+no screenshots, user documents, or full process command lines and uploads nothing.
+Review the file before sharing it; kernel messages can include system details.
+The probe prints the exact saved path.
+
+Possible results distinguish registration failure, enumeration with no compositor
+enable, and observed encoder assignment. None claims moving-frame verification.
+Running without a Wayland session can check enumeration but cannot prove that a
+compositor enables the display. Other checks and source review do not require
+repeated guest runs. This report does not test cold boot without a cable or host
+VFIO isolation.
+
+If the guest exposes several NVIDIA GPUs, append `--pci 0000:03:00.0` to select
+the GPU from the supplied report. `--connector DP-1` restricts the test to one
+unused port; the default needs neither option. `--wait 0` skips waiting for a
+compositor. If a process is forcibly killed or cleanup fails, its runtime state
+is retained for recovery with `sudo python3 src/idd.py down`; guest reboot also
+clears the transient display state. No output is configured to start on boot.
 
 ## 1. Prepare the guest
 

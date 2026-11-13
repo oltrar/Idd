@@ -13,6 +13,8 @@ jobs:
         run: |
           bash -n scripts/*.sh
           python3 -m py_compile src/idd.py
+          cp src/idd.py /tmp/idd-check.py
+          python3 /tmp/idd-check.py probe --help
           stage=$(mktemp -d)
           bash scripts/install.sh --guest-only --destdir "$stage"
           cmp src/idd.py "$stage/usr/local/bin/idd"

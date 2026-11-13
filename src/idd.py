@@ -3,10 +3,12 @@
 
 import argparse
 import contextlib
+from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
 import re
+import signal
 import subprocess
 import sys
 import time
@@ -282,6 +284,174 @@ def prepare(k, timeout):
             time.sleep(0.25)
 
 
+def snapshot(k):
+    """Only GPU display state; no EDID serials, user files or screenshots."""
+    cards = []
+    for card, pci in k.cards():
+        outputs = []
+        for path in sorted(card.parent.glob(card.name + "-*/status")):
+            output = path.parent
+            try:
+                outputs.append({
+                    "connector": output.name[len(card.name) + 1:],
+                    "status": path.read_text().strip(),
+                    "enabled": (output / "enabled").read_text().strip(),
+                    "modes": (output / "modes").read_text().splitlines(),
+                    "edid_bytes": len((output / "edid").read_bytes()),
+                })
+            except OSError as error:
+                outputs.append({"connector": output.name, "error": str(error)})
+        cards.append({"pci": pci, "card": card.name, "connectors": outputs})
+    return cards
+
+
+@contextlib.contextmanager
+def probe_hotplug():
+    """A temporary /run rule supports a source-file probe without installation."""
+    rule = Path("/run/udev/rules.d") / ("71-idd-probe-" + uuid.uuid4().hex + ".rules")
+    rule.parent.mkdir(parents=True, exist_ok=True)
+    content = ('ACTION=="change", SUBSYSTEM=="drm", KERNEL=="card[0-9]*", '
+               'DRIVERS=="nvidia", ENV{SYNTH_ARG_IDD}=="1", ENV{HOTPLUG}="1"\n')
+    atomic_write(rule, content.encode(), mode=0o644)
+    try:
+        subprocess.run(["udevadm", "control", "--reload-rules"], check=True, timeout=5)
+        yield
+    finally:
+        rule.unlink(missing_ok=True)
+        subprocess.run(["udevadm", "control", "--reload-rules"], check=True, timeout=5)
+
+
+def probe(k, result, pci=None, connector=None, wait=8):
+    """Caller holds the normal Idd lock; always undo displays created here."""
+    result.update(before=snapshot(k), attempts=[], frames_verified=False)
+    k.check_kms()
+    if k.state.exists():
+        # Inspect rather than tear down a display owned by a previous invocation.
+        state = json.loads(k.state.read_text())
+        result["existing_managed_display"] = report(k, state)
+        result["outcome"] = "existing_display_inspected"
+        result["after"] = snapshot(k)
+        return
+    cards = [(card, address) for card, address in k.cards() if pci is None or address == pci]
+    if len(cards) != 1:
+        raise IddError("Select one NVIDIA GPU with --pci; none or several matched.")
+    card, pci = cards[0]
+    candidates = []
+    for family in ("HDMI-A-", "DP-", "DVI-D-"):
+        for path in sorted(card.parent.glob(card.name + "-" + family + "*/status")):
+            name = path.parent.name[len(card.name) + 1:]
+            if connector is not None and name != connector:
+                continue
+            if path.read_text().strip() == "disconnected":
+                candidates.append(name)
+                break  # At most one unused port per type, max two attempts below.
+    if not candidates:
+        raise IddError("No unused matching connector; physical displays were left alone.")
+    with probe_hotplug():
+        for name in candidates[:2]:
+            cfg = {"guest_only": True, "pci": pci, "connector": name, "edid": make_edid().hex()}
+            attempt = {"pci": pci, "connector": name}
+            result["attempts"].append(attempt)
+            try:
+                attempt["enumerated"] = up(k, cfg)
+                deadline = time.monotonic() + wait
+                while True:
+                    observed = report(k, cfg)
+                    attempt["observed"] = observed
+                    if observed["enabled"] == "enabled" or time.monotonic() >= deadline:
+                        break
+                    time.sleep(0.25)
+                attempt["encoder_assigned"] = observed["enabled"] == "enabled"
+                _, _, endpoint = k.target(cfg)
+                state_file = endpoint.parent / "state"
+                if state_file.exists():
+                    with state_file.open(errors="replace") as f:
+                        attempt["drm_atomic_state"] = f.read(65536)
+            except (OSError, IddError) as error:
+                attempt["error"] = str(error)
+            finally:
+                # up() only saves state after it has passed the occupied/override
+                # guards. Thus an unsuccessful preflight owns nothing to undo.
+                if k.state.exists():
+                    try:
+                        down(k)
+                    except (OSError, IddError) as error:
+                        attempt["cleanup_error"] = str(error)
+                attempt["recovery_state_remaining"] = k.state.exists()
+            if attempt["recovery_state_remaining"]:
+                break
+    result["after"] = snapshot(k)
+    if k.state.exists():
+        result["outcome"] = "cleanup_required"
+    elif any(a.get("encoder_assigned") for a in result["attempts"]):
+        result["outcome"] = "encoder_assigned_frames_unverified"
+    elif any("enumerated" in a for a in result["attempts"]):
+        result["outcome"] = "enumerated_compositor_did_not_enable"
+    else:
+        result["outcome"] = "registration_failed"
+
+
+def bounded_command(argv):
+    try:
+        r = subprocess.run(argv, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                           text=True, errors="replace", timeout=10)
+        return {"exit_code": r.returncode, "output": r.stdout[-32768:]}
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return {"error": str(error)}
+
+
+def run_probe(k, args):
+    """Save a single report even after a test error or keyboard interruption."""
+    # Reserve the destination before touching display state. Never overwrite an
+    # existing file or discover an invalid report path after the hardware test.
+    report_fd = os.open(args.output, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    report_file = os.fdopen(report_fd, "w", encoding="utf-8")
+    result = {"schema": 1, "started_utc": datetime.now(timezone.utc).isoformat(),
+              "outcome": "preflight_failed", "frames_verified": False,
+              "kernel": os.uname().release,
+              "nvidia": bounded_command(["nvidia-smi", "--query-gpu=name,driver_version,pci.bus_id",
+                                          "--format=csv,noheader"])}
+    debug_was_mounted = os.path.ismount("/sys/kernel/debug")
+    old_handler = signal.getsignal(signal.SIGTERM)
+
+    def interrupted(signum, frame):
+        raise KeyboardInterrupt("Probe interrupted")
+
+    signal.signal(signal.SIGTERM, interrupted)
+    try:
+        with k.locked():
+            # Do not load modules or alter persistent configuration for a probe.
+            k.check_kms()
+            if not debug_was_mounted:
+                subprocess.run(["mount", "-t", "debugfs", "-o", "nosuid,nodev,noexec",
+                                "debugfs", "/sys/kernel/debug"], check=True, timeout=5)
+            probe(k, result, args.pci, args.connector, args.wait)
+    except (OSError, IddError, ValueError, KeyError, KeyboardInterrupt,
+            subprocess.SubprocessError) as error:
+        result["error"] = str(error) or "Probe interrupted"
+    finally:
+        signal.signal(signal.SIGTERM, old_handler)
+        if not debug_was_mounted and os.path.ismount("/sys/kernel/debug"):
+            cleanup = bounded_command(["umount", "/sys/kernel/debug"])
+            if cleanup.get("exit_code") != 0:
+                result["debugfs_cleanup"] = cleanup
+        logs = bounded_command(["journalctl", "-b", "-k", "--no-pager", "-o", "cat", "-n", "1500"])
+        if "output" in logs:
+            result["gpu_kernel_messages"] = "\n".join(
+                line for line in logs["output"].splitlines()
+                if re.search(r"nvidia|NVRM|\bdrm\b|edid|modeset", line, re.I))[-16384:]
+        result["finished_utc"] = datetime.now(timezone.utc).isoformat()
+        with report_file as f:
+            json.dump(result, f, indent=2)
+            f.write("\n")
+        if os.environ.get("SUDO_UID", "").isdecimal() and os.environ.get("SUDO_GID", "").isdecimal():
+            os.chown(args.output, int(os.environ["SUDO_UID"]), int(os.environ["SUDO_GID"]))
+    print(f"Report saved: {args.output.resolve()}\nResult: {result['outcome']}")
+    if k.state.exists() and result["outcome"] != "existing_display_inspected":
+        print("Recovery state remains. Run sudo python3 " + sys.argv[0] + " down", file=sys.stderr)
+    return 0 if result["outcome"] in ("existing_display_inspected", "encoder_assigned_frames_unverified") else 1
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__)
     sub = p.add_subparsers(dest="command", required=True)
@@ -299,6 +469,13 @@ def main(argv=None):
     sub.add_parser("status", help="Read-only configured output state")
     v = sub.add_parser("verify", help="Check NVIDIA ownership, EDID and advertised modes")
     v.add_argument("--active", action="store_true", help="Also require compositor-enabled scanout")
+    probe_parser = sub.add_parser("probe", help="One-run guest test/report; temporary display, no installation")
+    probe_parser.add_argument("--guest-only", required=True, action="store_true")
+    probe_parser.add_argument("--pci", help="Auto-select when exactly one NVIDIA GPU is present")
+    probe_parser.add_argument("--connector", help="Optional unused port; auto-select up to two port types")
+    probe_parser.add_argument("--wait", type=float, default=8, help="Seconds per port for compositor detection (0..15)")
+    probe_parser.add_argument("--output", type=Path, default=Path("idd-report-" +
+                              datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S") + ".json"))
     args = p.parse_args(argv)
     try:
         if args.command == "edid":
@@ -309,6 +486,18 @@ def main(argv=None):
         if sys.platform != "linux":
             raise IddError("Run display commands inside the Linux guest.")
         k = Kernel()
+        if args.command == "probe":
+            if os.geteuid() != 0:
+                raise IddError("The temporary display test requires root inside the guest.")
+            if not 0 <= args.wait <= 15:
+                raise IddError("Wait must be between 0 and 15 seconds.")
+            if args.pci is not None:
+                validate_target(args.pci, args.connector or "DP-1")
+            elif args.connector is not None:
+                validate_target("0000:00:00.0", args.connector)
+            if args.output.exists():
+                raise IddError("Report file already exists; select a new --output path.")
+            return run_probe(k, args)
         if args.command in ("configure", "up", "down"):
             if os.geteuid() != 0:
                 raise IddError("This command requires root inside the guest.")

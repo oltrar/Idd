@@ -16,6 +16,23 @@ they have not been established by the supplied telemetry. Driver branches and
 connector types can behave differently. See the [setup and validation
 guide](docs/linux-guest-display.md) for exact checks and limitations.
 
+## One-run check without installing
+
+When the guest is available, run this from the checkout:
+
+```sh
+sudo python3 src/idd.py probe --guest-only
+```
+
+`src/idd.py` is self-contained and can also be downloaded on its own. The probe
+automatically selects a single NVIDIA GPU and up to two unused connector types,
+briefly registers a monitor, waits for the compositor, and restores physical
+detection. It saves one `idd-report-*.json` in the current directory. There is
+no service installation, package download, desktop restart, or reboot. Existing
+Idd displays are inspected without changing them. It never uploads the report.
+Encoder assignment is reported separately from unverified moving frames.
+See [probe details](docs/linux-guest-display.md#one-run-check-no-installation).
+
 ## Install inside the guest
 
 Requires Python 3.9+, systemd/udev, NVIDIA DRM KMS, and accessible DRM debugfs.
